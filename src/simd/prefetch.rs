@@ -63,11 +63,13 @@ pub(crate) unsafe fn prefetch_write(ptr: *const u8) {
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub(crate) unsafe fn prefetch_l2_stream(ptr: *const u8) {
-    core::arch::asm!(
-        "prfm pldl2strm, [{ptr}]",
-        ptr = in(reg) ptr,
-        options(nostack, preserves_flags),
-    );
+    unsafe {
+        core::arch::asm!(
+            "prfm pldl2strm, [{ptr}]",
+            ptr = in(reg) ptr,
+            options(nostack, preserves_flags),
+        );
+    }
 }
 
 /// Prefetch for L1 cache (streaming read).
@@ -77,11 +79,13 @@ pub(crate) unsafe fn prefetch_l2_stream(ptr: *const u8) {
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub(crate) unsafe fn prefetch_l1_stream(ptr: *const u8) {
-    core::arch::asm!(
-        "prfm pldl1strm, [{ptr}]",
-        ptr = in(reg) ptr,
-        options(nostack, preserves_flags),
-    );
+    unsafe {
+        core::arch::asm!(
+            "prfm pldl1strm, [{ptr}]",
+            ptr = in(reg) ptr,
+            options(nostack, preserves_flags),
+        );
+    }
 }
 
 /// Prefetch for write-allocate (L1 keep).
@@ -91,11 +95,13 @@ pub(crate) unsafe fn prefetch_l1_stream(ptr: *const u8) {
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub(crate) unsafe fn prefetch_write(ptr: *const u8) {
-    core::arch::asm!(
-        "prfm pstl1keep, [{ptr}]",
-        ptr = in(reg) ptr,
-        options(nostack, preserves_flags),
-    );
+    unsafe {
+        core::arch::asm!(
+            "prfm pstl1keep, [{ptr}]",
+            ptr = in(reg) ptr,
+            options(nostack, preserves_flags),
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

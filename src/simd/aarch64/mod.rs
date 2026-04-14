@@ -1,3 +1,3 @@
 //! aarch64 SIMD backends.
 
-pub mod neon;
+pub(crate) mod neon;

@@ -7,7 +7,7 @@
 
 use alloc::vec::Vec;
 
-use crate::ccc::{canonical_combining_class, CccBuffer, CharAndCcc};
+use crate::ccc::CharAndCcc;
 use crate::hangul;
 use crate::tables;
 

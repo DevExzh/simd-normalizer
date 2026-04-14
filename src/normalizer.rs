@@ -8,7 +8,7 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::ccc::{self, canonical_combining_class, CccBuffer, CharAndCcc};
+use crate::ccc::{CccBuffer, CharAndCcc};
 use crate::compose;
 use crate::decompose::{self, DecompForm};
 use crate::quick_check;
@@ -273,10 +273,28 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             }
 
             // Copy any passthrough bytes between last_written and this position.
+            // Flush NormState first: it may hold a buffered starter that must
+            // appear *before* the passthrough run in the output.
+            //
+            // In composition mode, keep the last passthrough character as a
+            // potential starter for the following combining mark. Passthrough
+            // bytes are guaranteed to be ASCII (< 0xC0) and thus single-byte
+            // starters with CCC 0.
             if byte_pos > last_written
                 && let Some(ref mut out) = owned
             {
-                out.push_str(&input[last_written..byte_pos]);
+                state.flush(out, composes);
+                let pass = &input[last_written..byte_pos];
+                let n = pass.len();
+                if composes {
+                    if n > 1 {
+                        out.push_str(&pass[..n - 1]);
+                    }
+                    let last_ch = pass.as_bytes()[n - 1] as char;
+                    state.feed_entry(last_ch, 0, out, true);
+                } else {
+                    out.push_str(pass);
+                }
             }
 
             // Decode the character at this position.
@@ -319,10 +337,23 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 }
 
                 // Copy passthrough bytes before this char.
+                // Flush NormState first to preserve correct ordering.
+                // In composition mode, keep the last passthrough char as starter.
                 if tail_pos > last_written
                     && let Some(ref mut out) = owned
                 {
-                    out.push_str(&input[last_written..tail_pos]);
+                    state.flush(out, composes);
+                    let pass = &input[last_written..tail_pos];
+                    let n = pass.len();
+                    if composes {
+                        if n > 1 {
+                            out.push_str(&pass[..n - 1]);
+                        }
+                        let last_ch = pass.as_bytes()[n - 1] as char;
+                        state.feed_entry(last_ch, 0, out, true);
+                    } else {
+                        out.push_str(pass);
+                    }
                 }
 
                 let (ch, width) = utf8::decode_char_at(bytes, tail_pos);

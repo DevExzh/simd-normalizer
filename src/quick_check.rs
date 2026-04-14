@@ -2,12 +2,7 @@
 
 //! Quick-check for normalization forms (UAX#15 Section 9).
 
-use alloc::string::String;
-use alloc::vec::Vec;
-
-use crate::ccc::{self, canonical_combining_class, CccBuffer};
-use crate::compose;
-use crate::decompose::{self, DecompForm};
+use crate::ccc::canonical_combining_class;
 use crate::tables;
 
 /// Result of a quick-check test.
@@ -88,116 +83,16 @@ pub(crate) fn quick_check_nfkd(input: &str) -> IsNormalized {
 // ---------------------------------------------------------------------------
 // Definitive is_normalized checks (resolve Maybe via full normalization)
 // ---------------------------------------------------------------------------
-
-/// Full decomposition + canonical ordering for a string.
-fn normalize_decomposed(input: &str, form: DecompForm) -> String {
-    let mut buf = CccBuffer::new();
-
-    // Decompose the entire string into the buffer.
-    for ch in input.chars() {
-        decompose::decompose(ch, &mut buf, form);
-    }
-
-    // Collect all entries, then sort combining sequences by CCC.
-    let all_entries: Vec<ccc::CharAndCcc> = buf.as_slice().to_vec();
-
-    let mut result = String::with_capacity(input.len());
-    let mut segment_start = 0;
-
-    for i in 0..all_entries.len() {
-        if all_entries[i].ccc == 0 && i > segment_start {
-            // Output the segment [segment_start..i) with sorted combiners.
-            output_sorted_segment(&all_entries[segment_start..i], &mut result);
-            segment_start = i;
-        }
-    }
-    // Output the final segment.
-    if segment_start < all_entries.len() {
-        output_sorted_segment(&all_entries[segment_start..], &mut result);
-    }
-
-    result
-}
-
-fn output_sorted_segment(segment: &[ccc::CharAndCcc], result: &mut String) {
-    if segment.is_empty() {
-        return;
-    }
-
-    // First entry is the starter (CCC=0).
-    result.push(segment[0].ch);
-
-    if segment.len() > 1 {
-        // Sort combiners by CCC (stable).
-        let mut combiners: Vec<ccc::CharAndCcc> = segment[1..].to_vec();
-        combiners.sort_by_key(|e| e.ccc);
-
-        for entry in &combiners {
-            result.push(entry.ch);
-        }
-    }
-}
-
-/// Full NFC normalization for comparison.
-fn normalize_nfc_string(input: &str) -> String {
-    let nfd = normalize_decomposed(input, DecompForm::Canonical);
-    compose_string(&nfd)
-}
-
-/// Full NFKC normalization for comparison.
-fn normalize_nfkc_string(input: &str) -> String {
-    let nfkd = normalize_decomposed(input, DecompForm::Compatible);
-    compose_string(&nfkd)
-}
-
-/// Compose a decomposed + canonically ordered string.
-fn compose_string(input: &str) -> String {
-    let mut result = String::with_capacity(input.len());
-    let mut current_starter: Option<char> = None;
-    let mut combining: Vec<ccc::CharAndCcc> = Vec::new();
-
-    for ch in input.chars() {
-        let ccc = canonical_combining_class(ch);
-
-        if ccc == 0 {
-            // New starter. Flush the previous sequence.
-            if let Some(starter) = current_starter {
-                flush_composed(starter, &combining, &mut result);
-                combining.clear();
-            }
-            current_starter = Some(ch);
-        } else if current_starter.is_none() {
-            // Leading combining marks: no starter to compose with.
-            result.push(ch);
-        } else {
-            combining.push(ccc::CharAndCcc { ch, ccc });
-        }
-    }
-
-    // Flush final sequence.
-    if let Some(starter) = current_starter {
-        flush_composed(starter, &combining, &mut result);
-    }
-
-    result
-}
-
-/// Compose a starter with its combining sequence and append to result.
-#[inline]
-fn flush_composed(starter: char, combining: &[ccc::CharAndCcc], result: &mut String) {
-    let (composed, remaining) = compose::compose_combining_sequence(starter, combining);
-    result.push(composed);
-    for &rem_ch in &remaining {
-        result.push(rem_ch);
-    }
-}
+//
+// These delegate to the main normalizer for the Maybe case, ensuring the
+// quick-check resolution uses the same code path as actual normalization.
 
 /// Definitive NFC check.
 pub(crate) fn is_normalized_nfc(input: &str) -> bool {
     match quick_check_nfc(input) {
         IsNormalized::Yes => true,
         IsNormalized::No => false,
-        IsNormalized::Maybe => normalize_nfc_string(input) == input,
+        IsNormalized::Maybe => &*crate::nfc().normalize(input) == input,
     }
 }
 
@@ -206,7 +101,7 @@ pub(crate) fn is_normalized_nfd(input: &str) -> bool {
     match quick_check_nfd(input) {
         IsNormalized::Yes => true,
         IsNormalized::No => false,
-        IsNormalized::Maybe => normalize_decomposed(input, DecompForm::Canonical) == input,
+        IsNormalized::Maybe => &*crate::nfd().normalize(input) == input,
     }
 }
 
@@ -215,7 +110,7 @@ pub(crate) fn is_normalized_nfkc(input: &str) -> bool {
     match quick_check_nfkc(input) {
         IsNormalized::Yes => true,
         IsNormalized::No => false,
-        IsNormalized::Maybe => normalize_nfkc_string(input) == input,
+        IsNormalized::Maybe => &*crate::nfkc().normalize(input) == input,
     }
 }
 
@@ -224,7 +119,7 @@ pub(crate) fn is_normalized_nfkd(input: &str) -> bool {
     match quick_check_nfkd(input) {
         IsNormalized::Yes => true,
         IsNormalized::No => false,
-        IsNormalized::Maybe => normalize_decomposed(input, DecompForm::Compatible) == input,
+        IsNormalized::Maybe => &*crate::nfkd().normalize(input) == input,
     }
 }
 

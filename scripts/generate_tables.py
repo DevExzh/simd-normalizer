@@ -5,7 +5,7 @@ Generate Rust source files for simd-normalizer from the Unicode Character Databa
 Usage:
     python3 scripts/generate_tables.py
 
-Downloads UCD files for Unicode 16.0 and generates:
+Downloads UCD files for Unicode 17.0 and generates:
     src/tables/decomposition.rs
     src/tables/composition.rs
     src/tables/ccc.rs
@@ -19,7 +19,7 @@ import hashlib
 from pathlib import Path
 from collections import defaultdict
 
-UNICODE_VERSION = "16.0.0"
+UNICODE_VERSION = "17.0.0"
 UCD_BASE_URL = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
 
 UCD_FILES = {
@@ -140,14 +140,12 @@ def parse_derived_normalization_props():
             if len(parts) < 2:
                 continue
             range_str = parts[0].strip()
-            prop_part = parts[1].strip()
-            prop_fields = prop_part.split()
-            if not prop_fields:
-                continue
-            prop_name = prop_fields[0]
+            prop_name = parts[1].strip()
             if prop_name not in ("NFC_QC", "NFD_QC", "NFKC_QC", "NFKD_QC"):
                 continue
-            value = prop_fields[1] if len(prop_fields) >= 2 else "N"
+            if len(parts) < 3:
+                continue
+            value = parts[2].strip()
             if ".." in range_str:
                 start_str, end_str = range_str.split("..")
                 start = int(start_str, 16)

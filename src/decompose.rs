@@ -79,9 +79,7 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
                     let high = unit;
                     let low = data[i + 1];
                     if (0xDC00..=0xDFFF).contains(&low) {
-                        let cp = ((high as u32 - 0xD800) << 10)
-                            + (low as u32 - 0xDC00)
-                            + 0x10000;
+                        let cp = ((high as u32 - 0xD800) << 10) + (low as u32 - 0xDC00) + 0x10000;
                         i += 2;
                         // SAFETY: cp is a valid Unicode scalar value constructed
                         // from a valid surrogate pair in our generated tables.
@@ -101,18 +99,6 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
             }
         }
     }
-}
-
-/// Convenience: canonically decompose a character.
-#[inline]
-pub(crate) fn decompose_canonical(c: char, output: &mut CccBuffer) {
-    decompose(c, output, DecompForm::Canonical);
-}
-
-/// Convenience: compatibly decompose a character.
-#[inline]
-pub(crate) fn decompose_compatible(c: char, output: &mut CccBuffer) {
-    decompose(c, output, DecompForm::Compatible);
 }
 
 #[cfg(test)]
@@ -172,7 +158,11 @@ mod tests {
     fn test_a_grave_nfd() {
         // U+00C0 A with grave -> U+0041 A + U+0300 combining grave
         let result = decompose_to_vec('\u{00C0}', DecompForm::Canonical);
-        assert!(result.len() >= 2, "A-grave should decompose: got {:?}", result);
+        assert!(
+            result.len() >= 2,
+            "A-grave should decompose: got {:?}",
+            result
+        );
         assert_eq!(result[0].ch, 'A');
         assert_eq!(result[0].ccc, 0);
         assert_eq!(result[1].ch, '\u{0300}');
@@ -183,7 +173,11 @@ mod tests {
     fn test_e_acute_nfd() {
         // U+00E9 e with acute -> U+0065 e + U+0301 combining acute
         let result = decompose_to_vec('\u{00E9}', DecompForm::Canonical);
-        assert!(result.len() >= 2, "e-acute should decompose: got {:?}", result);
+        assert!(
+            result.len() >= 2,
+            "e-acute should decompose: got {:?}",
+            result
+        );
         assert_eq!(result[0].ch, 'e');
         assert_eq!(result[1].ch, '\u{0301}');
     }
@@ -217,9 +211,9 @@ mod tests {
     #[test]
     fn test_multiple_chars_into_buffer() {
         let mut buf = CccBuffer::new();
-        decompose_canonical('A', &mut buf);
-        decompose_canonical('\u{AC00}', &mut buf); // -> 2 jamos
-        decompose_canonical('B', &mut buf);
+        decompose('A', &mut buf, DecompForm::Canonical);
+        decompose('\u{AC00}', &mut buf, DecompForm::Canonical); // -> 2 jamos
+        decompose('B', &mut buf, DecompForm::Canonical);
         let slice = buf.as_slice();
         assert_eq!(slice.len(), 4);
         assert_eq!(slice[0].ch, 'A');

@@ -52,6 +52,7 @@ pub(crate) fn decode_char_at(bytes: &[u8], pos: usize) -> (char, usize) {
 /// Encode a Unicode scalar value as UTF-8 into `buf`.
 ///
 /// Returns the number of bytes written (1--4).
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn encode_char(c: char, buf: &mut [u8; 4]) -> usize {
     let cp = c as u32;
@@ -210,21 +211,33 @@ mod tests {
     #[test]
     fn continuation_byte_true() {
         for b in 0x80u8..=0xBF {
-            assert!(is_continuation_byte(b), "byte {:#04x} should be continuation", b);
+            assert!(
+                is_continuation_byte(b),
+                "byte {:#04x} should be continuation",
+                b
+            );
         }
     }
 
     #[test]
     fn continuation_byte_false_ascii() {
         for b in 0x00u8..=0x7F {
-            assert!(!is_continuation_byte(b), "byte {:#04x} should not be continuation", b);
+            assert!(
+                !is_continuation_byte(b),
+                "byte {:#04x} should not be continuation",
+                b
+            );
         }
     }
 
     #[test]
     fn continuation_byte_false_leading() {
         for b in 0xC0u8..=0xFF {
-            assert!(!is_continuation_byte(b), "byte {:#04x} should not be continuation", b);
+            assert!(
+                !is_continuation_byte(b),
+                "byte {:#04x} should not be continuation",
+                b
+            );
         }
     }
 }

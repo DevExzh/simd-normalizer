@@ -33,7 +33,7 @@ unsafe fn simd_load(ptr: *const u8) -> SimdVec {
 #[target_feature(enable = "sse4.2")]
 #[inline]
 unsafe fn simd_splat(val: u8) -> SimdVec {
-    unsafe { _mm_set1_epi8(val as i8) }
+    _mm_set1_epi8(val as i8)
 }
 
 /// Compare `a >= b` for unsigned bytes. Returns a bitmask with one bit per
@@ -47,11 +47,9 @@ unsafe fn simd_splat(val: u8) -> SimdVec {
 #[target_feature(enable = "sse4.2")]
 #[inline]
 unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u32 {
-    unsafe {
-        let max = _mm_max_epu8(a, b);
-        let eq = _mm_cmpeq_epi8(max, a);
-        _mm_movemask_epi8(eq) as u16 as u32
-    }
+    let max = _mm_max_epu8(a, b);
+    let eq = _mm_cmpeq_epi8(max, a);
+    _mm_movemask_epi8(eq) as u16 as u32
 }
 
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
@@ -61,7 +59,7 @@ crate::simd::scanner::impl_scanner! {
     mod sse42
 }
 
-#[cfg(all(test, target_arch = "x86_64"))]
+#[cfg(all(test, target_arch = "x86_64", feature = "std"))]
 mod tests {
     use super::*;
 
@@ -140,8 +138,8 @@ mod tests {
             return;
         }
         let mut chunk = [0u8; 64];
-        for i in 0..64 {
-            chunk[i] = (i as u8).wrapping_mul(7);
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte = (i as u8).wrapping_mul(7);
         }
         let sse_mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
         let scalar_mask = unsafe { crate::simd::scalar::scan_chunk(chunk.as_ptr(), 0xC0) };

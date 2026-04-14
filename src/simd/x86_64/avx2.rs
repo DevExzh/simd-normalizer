@@ -34,7 +34,7 @@ unsafe fn simd_load(ptr: *const u8) -> SimdVec {
 #[target_feature(enable = "avx2")]
 #[inline]
 unsafe fn simd_splat(val: u8) -> SimdVec {
-    unsafe { _mm256_set1_epi8(val as i8) }
+    _mm256_set1_epi8(val as i8)
 }
 
 /// Compare `a >= b` for unsigned bytes. Returns a bitmask with one bit per
@@ -50,11 +50,9 @@ unsafe fn simd_splat(val: u8) -> SimdVec {
 #[target_feature(enable = "avx2")]
 #[inline]
 unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u32 {
-    unsafe {
-        let max = _mm256_max_epu8(a, b);
-        let eq = _mm256_cmpeq_epi8(max, a);
-        _mm256_movemask_epi8(eq) as u32
-    }
+    let max = _mm256_max_epu8(a, b);
+    let eq = _mm256_cmpeq_epi8(max, a);
+    _mm256_movemask_epi8(eq) as u32
 }
 
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
@@ -64,7 +62,7 @@ crate::simd::scanner::impl_scanner! {
     mod avx2
 }
 
-#[cfg(all(test, target_arch = "x86_64"))]
+#[cfg(all(test, target_arch = "x86_64", feature = "std"))]
 mod tests {
     use super::*;
 
@@ -186,7 +184,10 @@ mod tests {
         let dummy = data.as_ptr();
         let mask_plain = unsafe { scan_chunk(data.as_ptr(), 0xC0) };
         let mask_pf = unsafe { scan_and_prefetch(data.as_ptr(), dummy, dummy, 0xC0) };
-        assert_eq!(mask_plain, mask_pf, "Prefetch variant must produce identical bitmask");
+        assert_eq!(
+            mask_plain, mask_pf,
+            "Prefetch variant must produce identical bitmask"
+        );
     }
 
     #[test]
@@ -195,8 +196,8 @@ mod tests {
             return;
         }
         let mut chunk = [0u8; 64];
-        for i in 0..64 {
-            chunk[i] = (i as u8).wrapping_mul(7);
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte = (i as u8).wrapping_mul(7);
         }
         let avx_mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
         let scalar_mask = unsafe { crate::simd::scalar::scan_chunk(chunk.as_ptr(), 0xC0) };

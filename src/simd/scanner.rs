@@ -54,6 +54,7 @@ macro_rules! impl_scanner {
         /// # Safety
         /// Same as [`scan_chunk`], plus `prefetch_l1` and `prefetch_l2` must
         /// point into (or one cache line past) a readable allocation.
+        #[allow(dead_code)]
         $(#[$feat])*
         #[inline(never)]
         pub(crate) unsafe fn scan_and_prefetch(

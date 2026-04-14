@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Platform-specific software prefetch wrappers.
 //!
 //! These issue prefetch hints to warm cache lines before the SIMD scanner
@@ -26,7 +27,7 @@ pub(crate) const CHUNK_SIZE: usize = 64;
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 pub(crate) unsafe fn prefetch_l2_stream(ptr: *const u8) {
-    use core::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+    use core::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
     unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_T1) };
 }
 
@@ -37,7 +38,7 @@ pub(crate) unsafe fn prefetch_l2_stream(ptr: *const u8) {
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 pub(crate) unsafe fn prefetch_l1_stream(ptr: *const u8) {
-    use core::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+    use core::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
     unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_T0) };
 }
 
@@ -48,7 +49,7 @@ pub(crate) unsafe fn prefetch_l1_stream(ptr: *const u8) {
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 pub(crate) unsafe fn prefetch_write(ptr: *const u8) {
-    use core::arch::x86_64::{_mm_prefetch, _MM_HINT_NTA};
+    use core::arch::x86_64::{_MM_HINT_NTA, _mm_prefetch};
     unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_NTA) };
 }
 

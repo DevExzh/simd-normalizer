@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5e6f2e64ab751c52e1b298560a2e79b49646ee08f2285ff0653035ffcf85e3a1 # shrinks to s = "À\u{300}À\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}a\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}A\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}a\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}"
+cc b4d6ec7841a4a7012c27b4d72ce668e58aee8d2b6783b399a576ddf628ffc5ab # shrinks to s = "À\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}À\u{300}A\u{300}\u{300}\u{300}\u{300}\u{300}a\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}a\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}"
+cc 3782d2fcb7b793d0b4e6472b448c7dcac98986f126429cdef6ed0e34a673efce # shrinks to s = "Ç\u{300}\u{300}\u{300}\u{300}\u{300}À\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}À\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}a\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}"
+cc 5b2513ebf3141c4675cafb87acd79131e3e749d651970098dbedeca2fd242a7f # shrinks to s = "a\u{305}a\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}b\u{300}\u{300}\u{300}\u{300}\u{300}À\u{300}\u{300}a\u{305}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}\u{300}b\u{344}\u{300}\u{300}\u{300}\u{300}\u{300}"
+cc 61b8bf3393ea5c838a3e4baae8934141f60529778a86e65335073a0bc3c351c9 # shrinks to s = "\u{323}"

@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 514fd9485ce183822aec7f134c9c37ea599a49fad7209c5ad351a820b0d709c9 # shrinks to s = "A\u{20d0}\u{1acf}\u{300}\u{596}"
+cc 8eed4aeb4b553c099472cafea5d44bc2fc9565564fb46633993cf7527a5852fc # shrinks to s = "A\u{1acf}\u{64b}\u{64b}\u{64b}"
+cc 6fc86ec56758cbc57dcc3bcc70596488bff9509285fdcddaa19da61c3c931507 # shrinks to s = " a\u{e00}\u{e00}0 一0가\u{600}Ā\u{3040} 0\u{590}가ᄀ0a゠aƀ゠ƀAƀᄀ 😀a \u{900}a"
+cc 8d567d786c9203cad031b4a4f6b0b218850f750fa9a0cafea402e06cc00fd73b # shrinks to s = "😀一A 😀a00A\u{600}\u{3040} 가가゠a\u{3040}0Aa가A00aA0 😀aͰ  \u{600}A 0a"
+cc 58c3bae80eeeb9df14e9f6a73d214a9e085cb4bc1e582f6e5069cffe5bd91c4e # shrinks to s = "AA Ā0a  aA\u{340}\u{590}Ѐ 😀    ƀ\u{3040}a가0😀 A a ゠\u{e00}0ƀ 0ĀƀЀAA"
+cc 82d7dbb228d97289970f2de9f10b20e3d1e7b491377b74fccfd23bf1ecca4a73 # shrinks to s = "Ѐ0\u{600}\u{3040}AU\u{308}A\u{900}Ѐ  A가0ƀaЀƀ😀 ͰЀ \u{600}0ƀA00A ᄀ\u{3040}Ā \u{e00}"

@@ -51,12 +51,11 @@ pub(crate) fn compose_combining_sequence(
             Some(prev_ccc) => prev_ccc >= ch_ccc,
         };
 
-        if !blocked
-            && let Some(composed) = compose(current_starter, ch) {
-                current_starter = composed;
-                // Do NOT update last_ccc: composed char disappears from sequence.
-                continue;
-            }
+        if !blocked && let Some(composed) = compose(current_starter, ch) {
+            current_starter = composed;
+            // Do NOT update last_ccc: composed char disappears from sequence.
+            continue;
+        }
 
         // Either blocked or composition failed -- keep ch in output.
         remaining.push(ch);

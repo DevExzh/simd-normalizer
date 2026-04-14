@@ -123,10 +123,7 @@ fn compat_decomp_strategy() -> impl Strategy<Value = String> {
 /// Strategy: long combining sequences (base character followed by many
 /// combining marks from diverse scripts).
 fn long_combining_strategy() -> impl Strategy<Value = String> {
-    let base_chars = vec![
-        'A'..='Z',
-        'a'..='z',
-    ];
+    let base_chars = vec!['A'..='Z', 'a'..='z'];
 
     let combining_marks = vec![
         // Combining Diacritical Marks
@@ -147,10 +144,7 @@ fn long_combining_strategy() -> impl Strategy<Value = String> {
 
     // Generate a base char, then 4..=30 combining marks appended.
     let base = prop::char::ranges(base_chars.into());
-    let marks = prop::collection::vec(
-        prop::char::ranges(combining_marks.into()),
-        4..=30,
-    );
+    let marks = prop::collection::vec(prop::char::ranges(combining_marks.into()), 4..=30);
 
     (base, marks).prop_map(|(b, ms)| {
         let mut s = String::with_capacity(1 + ms.len() * 4);
@@ -168,7 +162,8 @@ fn long_combining_strategy() -> impl Strategy<Value = String> {
 
 fn assert_eq_normalized(form: &str, input: &str, ours: &str, reference: &str) {
     assert_eq!(
-        ours, reference,
+        ours,
+        reference,
         "\n{form} divergence!\
          \n  input (len={ilen}): {input_escaped}\
          \n  ours  (len={olen}): {ours_escaped}\
@@ -347,7 +342,8 @@ fn differential_edge_cases() {
         let our_nfc_result = our_nfc(input);
         let ref_nfc_result = ref_nfc(input);
         assert_eq!(
-            our_nfc_result, ref_nfc_result,
+            our_nfc_result,
+            ref_nfc_result,
             "NFC edge case {label:?} failed\n  input codepoints: {input_cps}\n  ours:  {ours_cps}\n  ref:   {ref_cps}",
             label = label,
             input_cps = codepoints(input),
@@ -359,7 +355,8 @@ fn differential_edge_cases() {
         let our_nfd_result = our_nfd(input);
         let ref_nfd_result = ref_nfd(input);
         assert_eq!(
-            our_nfd_result, ref_nfd_result,
+            our_nfd_result,
+            ref_nfd_result,
             "NFD edge case {label:?} failed\n  input codepoints: {input_cps}\n  ours:  {ours_cps}\n  ref:   {ref_cps}",
             label = label,
             input_cps = codepoints(input),
@@ -371,7 +368,8 @@ fn differential_edge_cases() {
         let our_nfkc_result = our_nfkc(input);
         let ref_nfkc_result = ref_nfkc(input);
         assert_eq!(
-            our_nfkc_result, ref_nfkc_result,
+            our_nfkc_result,
+            ref_nfkc_result,
             "NFKC edge case {label:?} failed\n  input codepoints: {input_cps}\n  ours:  {ours_cps}\n  ref:   {ref_cps}",
             label = label,
             input_cps = codepoints(input),
@@ -383,7 +381,8 @@ fn differential_edge_cases() {
         let our_nfkd_result = our_nfkd(input);
         let ref_nfkd_result = ref_nfkd(input);
         assert_eq!(
-            our_nfkd_result, ref_nfkd_result,
+            our_nfkd_result,
+            ref_nfkd_result,
             "NFKD edge case {label:?} failed\n  input codepoints: {input_cps}\n  ours:  {ours_cps}\n  ref:   {ref_cps}",
             label = label,
             input_cps = codepoints(input),

@@ -8,8 +8,8 @@ mod tests {
     /// Generate a deterministic but non-trivial 64-byte test vector.
     fn make_test_data(seed: u8) -> [u8; 64] {
         let mut data = [0u8; 64];
-        for i in 0..64 {
-            data[i] = seed.wrapping_mul(i as u8).wrapping_add(i as u8 ^ seed);
+        for (i, byte) in data.iter_mut().enumerate() {
+            *byte = seed.wrapping_mul(i as u8).wrapping_add(i as u8 ^ seed);
         }
         data
     }
@@ -34,8 +34,7 @@ mod tests {
 
     #[test]
     fn sse42_vs_avx512_consistency() {
-        if !std::is_x86_feature_detected!("sse4.2") || !std::is_x86_feature_detected!("avx512bw")
-        {
+        if !std::is_x86_feature_detected!("sse4.2") || !std::is_x86_feature_detected!("avx512bw") {
             return;
         }
         for seed in 0..=255u8 {
@@ -101,8 +100,8 @@ mod tests {
 
         fn scalar_scan(data: &[u8; 64], bound: u8) -> u64 {
             let mut mask = 0u64;
-            for i in 0..64 {
-                if data[i] >= bound {
+            for (i, &byte) in data.iter().enumerate() {
+                if byte >= bound {
                     mask |= 1u64 << i;
                 }
             }

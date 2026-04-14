@@ -112,8 +112,7 @@ impl NormState {
         let sorted: Vec<CharAndCcc> = self.ccc_buf.sort_and_drain().collect();
 
         if composes {
-            let (composed, remaining) =
-                compose::compose_combining_sequence(starter, &sorted);
+            let (composed, remaining) = compose::compose_combining_sequence(starter, &sorted);
             out.push(composed);
             for ch in &remaining {
                 out.push(*ch);

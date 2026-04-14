@@ -5,9 +5,7 @@
 //! returns `u64` directly — no movemask gymnastics needed.
 
 #[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::{
-    __m512i, _mm512_cmpge_epu8_mask, _mm512_loadu_si512, _mm512_set1_epi8,
-};
+use core::arch::x86_64::{__m512i, _mm512_cmpge_epu8_mask, _mm512_loadu_si512, _mm512_set1_epi8};
 
 /// Number of bytes per AVX-512 register.
 const LANES: usize = 64;
@@ -35,7 +33,7 @@ unsafe fn simd_load(ptr: *const u8) -> SimdVec {
 #[target_feature(enable = "avx512bw")]
 #[inline]
 unsafe fn simd_splat(val: u8) -> SimdVec {
-    unsafe { _mm512_set1_epi8(val as i8) }
+    _mm512_set1_epi8(val as i8)
 }
 
 /// Compare `a >= b` for unsigned bytes. Returns a bitmask with one bit per
@@ -49,7 +47,7 @@ unsafe fn simd_splat(val: u8) -> SimdVec {
 #[target_feature(enable = "avx512bw")]
 #[inline]
 unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u64 {
-    unsafe { _mm512_cmpge_epu8_mask(a, b) }
+    _mm512_cmpge_epu8_mask(a, b)
 }
 
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
@@ -59,7 +57,7 @@ crate::simd::scanner::impl_scanner! {
     mod avx512
 }
 
-#[cfg(all(test, target_arch = "x86_64"))]
+#[cfg(all(test, target_arch = "x86_64", feature = "std"))]
 mod tests {
     use super::*;
 
@@ -174,7 +172,10 @@ mod tests {
         let dummy = data.as_ptr();
         let mask_plain = unsafe { scan_chunk(data.as_ptr(), 0xC0) };
         let mask_pf = unsafe { scan_and_prefetch(data.as_ptr(), dummy, dummy, 0xC0) };
-        assert_eq!(mask_plain, mask_pf, "Prefetch variant must produce identical bitmask");
+        assert_eq!(
+            mask_plain, mask_pf,
+            "Prefetch variant must produce identical bitmask"
+        );
     }
 
     #[test]
@@ -183,8 +184,8 @@ mod tests {
             return;
         }
         let mut chunk = [0u8; 64];
-        for i in 0..64 {
-            chunk[i] = (i as u8).wrapping_mul(7);
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte = (i as u8).wrapping_mul(7);
         }
         let avx_mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
         let scalar_mask = unsafe { crate::simd::scalar::scan_chunk(chunk.as_ptr(), 0xC0) };

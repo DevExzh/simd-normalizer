@@ -4,15 +4,14 @@ extern crate alloc;
 
 use alloc::borrow::Cow;
 use alloc::string::String;
-use simd_normalizer::normalizer::{
-    NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer,
-};
+use simd_normalizer::normalizer::{NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer};
 
 // ============================================================================
 // Helper
 // ============================================================================
 
-fn is_borrowed(cow: &Cow<str>) -> bool {
+#[allow(clippy::ptr_arg)]
+fn is_borrowed(cow: &Cow<'_, str>) -> bool {
     matches!(cow, Cow::Borrowed(_))
 }
 

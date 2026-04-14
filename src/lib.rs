@@ -14,14 +14,14 @@ extern crate std;
 
 use alloc::borrow::Cow;
 
-pub mod normalizer;
-mod decompose;
-mod compose;
 mod ccc;
+mod compose;
+mod decompose;
 mod hangul;
+pub mod normalizer;
 mod quick_check;
-mod tables;
 pub(crate) mod simd;
+mod tables;
 mod utf8;
 
 pub use normalizer::{NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer};

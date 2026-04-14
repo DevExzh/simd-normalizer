@@ -35,6 +35,7 @@ pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
 ///
 /// # Safety
 /// Same as [`scan_chunk`].
+#[allow(dead_code)]
 #[inline]
 pub(crate) unsafe fn scan_and_prefetch(
     ptr: *const u8,
@@ -64,7 +65,11 @@ mod tests {
     fn scan_all_above_bound() {
         let chunk = make_chunk(0xFF);
         let mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
-        assert_eq!(mask, u64::MAX, "All-high chunk should produce mask=all-ones");
+        assert_eq!(
+            mask,
+            u64::MAX,
+            "All-high chunk should produce mask=all-ones"
+        );
     }
 
     #[test]
@@ -124,8 +129,8 @@ mod tests {
     #[test]
     fn scan_alternating_pattern() {
         let mut chunk = [0u8; 64];
-        for i in 0..64 {
-            chunk[i] = if i % 2 == 0 { 0xFF } else { 0x00 };
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte = if i % 2 == 0 { 0xFF } else { 0x00 };
         }
         let mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
         let expected: u64 = 0x5555_5555_5555_5555;

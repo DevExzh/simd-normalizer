@@ -63,6 +63,7 @@ impl CccBuffer {
         self.len == 0
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn len(&self) -> usize {
         self.len

@@ -14,34 +14,31 @@ use std::borrow::Cow;
 
 /// Broad mix of Unicode scripts for general property testing.
 fn unicode_string_strategy() -> impl Strategy<Value = String> {
-    let ranges = prop::char::ranges(
-        std::borrow::Cow::Borrowed(&[
-            // ASCII
-            '\u{0020}'..='\u{007E}',
-            // Latin Extended-A / Extended-B
-            '\u{0100}'..='\u{024F}',
-            // Combining Diacritical Marks
-            '\u{0300}'..='\u{036F}',
-            // Cyrillic
-            '\u{0400}'..='\u{04FF}',
-            // Arabic
-            '\u{0600}'..='\u{06FF}',
-            // Devanagari
-            '\u{0900}'..='\u{097F}',
-            // Hangul Jamo
-            '\u{1100}'..='\u{11FF}',
-            // Hiragana
-            '\u{3040}'..='\u{309F}',
-            // CJK Unified Ideographs (small slice)
-            '\u{4E00}'..='\u{4FFF}',
-            // Hangul Syllables (small slice)
-            '\u{AC00}'..='\u{D7A3}',
-            // Emoticons
-            '\u{1F600}'..='\u{1F64F}',
-        ]),
-    );
-    prop::collection::vec(ranges, 1..64)
-        .prop_map(|chars| chars.into_iter().collect::<String>())
+    let ranges = prop::char::ranges(std::borrow::Cow::Borrowed(&[
+        // ASCII
+        '\u{0020}'..='\u{007E}',
+        // Latin Extended-A / Extended-B
+        '\u{0100}'..='\u{024F}',
+        // Combining Diacritical Marks
+        '\u{0300}'..='\u{036F}',
+        // Cyrillic
+        '\u{0400}'..='\u{04FF}',
+        // Arabic
+        '\u{0600}'..='\u{06FF}',
+        // Devanagari
+        '\u{0900}'..='\u{097F}',
+        // Hangul Jamo
+        '\u{1100}'..='\u{11FF}',
+        // Hiragana
+        '\u{3040}'..='\u{309F}',
+        // CJK Unified Ideographs (small slice)
+        '\u{4E00}'..='\u{4FFF}',
+        // Hangul Syllables (small slice)
+        '\u{AC00}'..='\u{D7A3}',
+        // Emoticons
+        '\u{1F600}'..='\u{1F64F}',
+    ]));
+    prop::collection::vec(ranges, 1..64).prop_map(|chars| chars.into_iter().collect::<String>())
 }
 
 /// Strings with a base character followed by 1-8 combining marks.
@@ -55,20 +52,18 @@ fn combining_heavy_strategy() -> impl Strategy<Value = String> {
         '\u{0300}'..='\u{036F}', // Combining Diacritical Marks
     ]));
 
-    prop::collection::vec(
-        (base_chars, prop::collection::vec(combining, 1..=8)),
-        1..=8,
-    )
-    .prop_map(|segments| {
-        let mut s = String::new();
-        for (base, marks) in segments {
-            s.push(base);
-            for m in marks {
-                s.push(m);
+    prop::collection::vec((base_chars, prop::collection::vec(combining, 1..=8)), 1..=8).prop_map(
+        |segments| {
+            let mut s = String::new();
+            for (base, marks) in segments {
+                s.push(base);
+                for m in marks {
+                    s.push(m);
+                }
             }
-        }
-        s
-    })
+            s
+        },
+    )
 }
 
 /// Hangul syllables and L+V / L+V+T jamo sequences.
@@ -184,7 +179,7 @@ proptest! {
         let nfc_s = s.nfc();
         // After one normalization, the result must be NFC-normalized.
         // A second call should detect it's already normalized and return Borrowed.
-        let nfc_str: &str = &*nfc_s;
+        let nfc_str: &str = &nfc_s;
         let owned = nfc_str.to_string();
         let second = owned.as_str().nfc();
         if owned.as_str().is_nfc() {
@@ -206,7 +201,7 @@ proptest! {
     #[test]
     fn cow_borrowed_nfd(s in unicode_string_strategy()) {
         let nfd_s = s.nfd();
-        let nfd_str: &str = &*nfd_s;
+        let nfd_str: &str = &nfd_s;
         let owned = nfd_str.to_string();
         let second = owned.as_str().nfd();
         if owned.as_str().is_nfd() {
@@ -227,7 +222,7 @@ proptest! {
     #[test]
     fn cow_borrowed_nfkc(s in unicode_string_strategy()) {
         let nfkc_s = s.nfkc();
-        let nfkc_str: &str = &*nfkc_s;
+        let nfkc_str: &str = &nfkc_s;
         let owned = nfkc_str.to_string();
         let second = owned.as_str().nfkc();
         if owned.as_str().is_nfkc() {
@@ -248,7 +243,7 @@ proptest! {
     #[test]
     fn cow_borrowed_nfkd(s in unicode_string_strategy()) {
         let nfkd_s = s.nfkd();
-        let nfkd_str: &str = &*nfkd_s;
+        let nfkd_str: &str = &nfkd_s;
         let owned = nfkd_str.to_string();
         let second = owned.as_str().nfkd();
         if owned.as_str().is_nfkd() {

@@ -31,6 +31,7 @@ pub(crate) fn is_hangul_syllable(c: char) -> bool {
 }
 
 /// Check if a character is a Hangul L (leading consonant) jamo.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn is_hangul_lpart(c: char) -> bool {
     let cp = c as u32;
@@ -38,6 +39,7 @@ pub(crate) fn is_hangul_lpart(c: char) -> bool {
 }
 
 /// Check if a character is a Hangul V (vowel) jamo.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn is_hangul_vpart(c: char) -> bool {
     let cp = c as u32;
@@ -46,6 +48,7 @@ pub(crate) fn is_hangul_vpart(c: char) -> bool {
 
 /// Check if a character is a Hangul T (trailing consonant) jamo.
 /// Note: T_BASE (U+11A7) itself is NOT a valid trailing consonant.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn is_hangul_tpart(c: char) -> bool {
     let cp = c as u32;
@@ -100,11 +103,16 @@ pub(crate) fn compose_hangul(a: char, b: char) -> Option<char> {
 }
 
 /// Return the decomposition length: 2 for LV, 3 for LVT.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn hangul_decomposition_length(c: char) -> usize {
     debug_assert!(is_hangul_syllable(c));
     let s_index = c as u32 - S_BASE;
-    if s_index.is_multiple_of(T_COUNT) { 2 } else { 3 }
+    if s_index.is_multiple_of(T_COUNT) {
+        2
+    } else {
+        3
+    }
 }
 
 #[cfg(test)]

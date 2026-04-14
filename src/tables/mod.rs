@@ -14,8 +14,10 @@ use trie::CodePointTrie;
 // ---------------------------------------------------------------------------
 
 /// First character of decomposition combines backwards.
+#[allow(dead_code)]
 const BACKWARD_COMBINING: u32 = 1 << 31;
 /// Decomposition doesn't round-trip via NFC.
+#[allow(dead_code)]
 const NON_ROUND_TRIP: u32 = 1 << 30;
 /// Code point needs decomposition (not a self-mapping).
 const HAS_DECOMPOSITION: u32 = 1 << 29;

@@ -19,8 +19,8 @@
 //! - other: scalar fallback
 
 pub(crate) mod prefetch;
-pub(crate) mod scanner;
 pub(crate) mod scalar;
+pub(crate) mod scanner;
 
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod x86_64;
@@ -36,9 +36,11 @@ pub(crate) mod wasm32;
 // ---------------------------------------------------------------------------
 
 /// Function pointer type for `scan_chunk(ptr, bound) -> mask`.
+#[allow(dead_code)]
 type ScanChunkFn = unsafe fn(*const u8, u8) -> u64;
 
 /// Function pointer type for `scan_and_prefetch(ptr, l1, l2, bound) -> mask`.
+#[allow(dead_code)]
 type ScanAndPrefetchFn = unsafe fn(*const u8, *const u8, *const u8, u8) -> u64;
 
 // ===========================================================================
@@ -52,6 +54,7 @@ mod dispatch {
     type FnRaw = *mut ();
 
     static SCAN_IMPL: AtomicPtr<()> = AtomicPtr::new(detect_scan as FnRaw);
+    #[allow(dead_code)]
     static PREFETCH_IMPL: AtomicPtr<()> = AtomicPtr::new(detect_prefetch as FnRaw);
 
     unsafe fn detect_scan(ptr: *const u8, bound: u8) -> u64 {
@@ -73,6 +76,7 @@ mod dispatch {
         super::scalar::scan_chunk
     }
 
+    #[allow(dead_code)]
     unsafe fn detect_prefetch(
         ptr: *const u8,
         prefetch_l1: *const u8,
@@ -84,6 +88,7 @@ mod dispatch {
         unsafe { f(ptr, prefetch_l1, prefetch_l2, bound) }
     }
 
+    #[allow(dead_code)]
     fn pick_best_prefetch() -> ScanAndPrefetchFn {
         if std::is_x86_feature_detected!("avx512bw") {
             return super::x86_64::avx512::scan_and_prefetch;
@@ -99,11 +104,11 @@ mod dispatch {
 
     #[inline]
     pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-        let f: ScanChunkFn =
-            unsafe { core::mem::transmute(SCAN_IMPL.load(Ordering::Relaxed)) };
+        let f: ScanChunkFn = unsafe { core::mem::transmute(SCAN_IMPL.load(Ordering::Relaxed)) };
         unsafe { f(ptr, bound) }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) unsafe fn scan_and_prefetch(
         ptr: *const u8,
@@ -146,10 +151,11 @@ mod dispatch {
             target_feature = "avx512bw"
         )))]
         {
-            return unsafe { super::scalar::scan_chunk(ptr, bound) };
+            unsafe { super::scalar::scan_chunk(ptr, bound) }
         }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) unsafe fn scan_and_prefetch(
         ptr: *const u8,
@@ -185,9 +191,7 @@ mod dispatch {
             target_feature = "avx512bw"
         )))]
         {
-            return unsafe {
-                super::scalar::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-            };
+            unsafe { super::scalar::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
         }
     }
 }
@@ -202,6 +206,7 @@ mod dispatch {
         unsafe { super::aarch64::neon::scan_chunk(ptr, bound) }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) unsafe fn scan_and_prefetch(
         ptr: *const u8,
@@ -209,9 +214,7 @@ mod dispatch {
         prefetch_l2: *const u8,
         bound: u8,
     ) -> u64 {
-        unsafe {
-            super::aarch64::neon::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-        }
+        unsafe { super::aarch64::neon::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
     }
 }
 
@@ -232,6 +235,7 @@ mod dispatch {
         }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) unsafe fn scan_and_prefetch(
         ptr: *const u8,
@@ -242,12 +246,7 @@ mod dispatch {
         #[cfg(target_feature = "simd128")]
         {
             return unsafe {
-                super::wasm32::simd128::scan_and_prefetch(
-                    ptr,
-                    prefetch_l1,
-                    prefetch_l2,
-                    bound,
-                )
+                super::wasm32::simd128::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
             };
         }
         #[cfg(not(target_feature = "simd128"))]
@@ -273,6 +272,7 @@ mod dispatch {
         unsafe { super::scalar::scan_chunk(ptr, bound) }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) unsafe fn scan_and_prefetch(
         ptr: *const u8,
@@ -309,6 +309,7 @@ pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
 /// - `ptr` must be valid for 64 bytes of read access.
 /// - Prefetch pointers may be out-of-bounds (prefetch is a non-faulting hint
 ///   on all supported architectures).
+#[allow(dead_code)]
 #[inline]
 pub(crate) unsafe fn scan_and_prefetch(
     ptr: *const u8,
@@ -323,6 +324,7 @@ pub(crate) unsafe fn scan_and_prefetch(
 ///
 /// Uses the dispatched SIMD scanner in 64-byte chunks, then scans the tail
 /// byte-by-byte. Returns `bytes.len()` if no such byte exists.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn find_first_above(bytes: &[u8], bound: u8) -> usize {
     let len = bytes.len();

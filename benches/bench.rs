@@ -3,7 +3,7 @@
 //! Covers NFC, NFD, NFKC, NFKD normalization and is_normalized checks across
 //! diverse Unicode input categories (~10 KB each).
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // ---------------------------------------------------------------------------
 // Input generators (~10 KB each)
@@ -64,11 +64,15 @@ fn gen_hangul() -> String {
 fn gen_emoji() -> String {
     let emojis = [
         "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}", // family
-        "\u{1F469}\u{200D}\u{1F4BB}",                                     // woman technologist
-        "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}",                             // rainbow flag
-        "\u{1F468}\u{1F3FB}\u{200D}\u{2695}\u{FE0F}",                     // man health worker light
-        "\u{1F1FA}\u{1F1F8}",                                              // US flag
-        "\u{1F600}", "\u{1F60D}", "\u{1F680}", "\u{1F4A9}", "\u{2764}\u{FE0F}",
+        "\u{1F469}\u{200D}\u{1F4BB}",                                   // woman technologist
+        "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}",                           // rainbow flag
+        "\u{1F468}\u{1F3FB}\u{200D}\u{2695}\u{FE0F}",                   // man health worker light
+        "\u{1F1FA}\u{1F1F8}",                                           // US flag
+        "\u{1F600}",
+        "\u{1F60D}",
+        "\u{1F680}",
+        "\u{1F4A9}",
+        "\u{2764}\u{FE0F}",
         "\u{1F44D}\u{1F3FD}", // thumbs up medium skin
     ];
     let mut s = String::new();
@@ -135,8 +139,8 @@ fn gen_worst_case() -> String {
         //   U+0323 (CCC=220) COMBINING DOT BELOW
         //   U+0330 (CCC=220) COMBINING TILDE BELOW
         let marks = [
-            '\u{0300}', '\u{0316}', '\u{0327}', '\u{0308}', '\u{0301}',
-            '\u{030C}', '\u{0323}', '\u{0330}', '\u{0304}', '\u{0328}',
+            '\u{0300}', '\u{0316}', '\u{0327}', '\u{0308}', '\u{0301}', '\u{030C}', '\u{0323}',
+            '\u{0330}', '\u{0304}', '\u{0328}',
         ];
         for i in 0..30 {
             s.push(marks[i % marks.len()]);
@@ -181,15 +185,42 @@ struct InputCase {
 
 fn all_inputs() -> Vec<InputCase> {
     vec![
-        InputCase { name: "ascii_only", data: gen_ascii_only() },
-        InputCase { name: "latin1", data: gen_latin1() },
-        InputCase { name: "cjk", data: gen_cjk() },
-        InputCase { name: "arabic", data: gen_arabic() },
-        InputCase { name: "hangul", data: gen_hangul() },
-        InputCase { name: "emoji", data: gen_emoji() },
-        InputCase { name: "mixed", data: gen_mixed() },
-        InputCase { name: "already_nfc", data: gen_already_nfc() },
-        InputCase { name: "worst_case", data: gen_worst_case() },
+        InputCase {
+            name: "ascii_only",
+            data: gen_ascii_only(),
+        },
+        InputCase {
+            name: "latin1",
+            data: gen_latin1(),
+        },
+        InputCase {
+            name: "cjk",
+            data: gen_cjk(),
+        },
+        InputCase {
+            name: "arabic",
+            data: gen_arabic(),
+        },
+        InputCase {
+            name: "hangul",
+            data: gen_hangul(),
+        },
+        InputCase {
+            name: "emoji",
+            data: gen_emoji(),
+        },
+        InputCase {
+            name: "mixed",
+            data: gen_mixed(),
+        },
+        InputCase {
+            name: "already_nfc",
+            data: gen_already_nfc(),
+        },
+        InputCase {
+            name: "worst_case",
+            data: gen_worst_case(),
+        },
     ]
 }
 

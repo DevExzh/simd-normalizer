@@ -27,21 +27,21 @@ pub(crate) const S_COUNT: u32 = L_COUNT * N_COUNT; // 11172
 #[inline]
 pub(crate) fn is_hangul_syllable(c: char) -> bool {
     let cp = c as u32;
-    cp >= S_BASE && cp < S_BASE + S_COUNT
+    (S_BASE..S_BASE + S_COUNT).contains(&cp)
 }
 
 /// Check if a character is a Hangul L (leading consonant) jamo.
 #[inline]
 pub(crate) fn is_hangul_lpart(c: char) -> bool {
     let cp = c as u32;
-    cp >= L_BASE && cp < L_BASE + L_COUNT
+    (L_BASE..L_BASE + L_COUNT).contains(&cp)
 }
 
 /// Check if a character is a Hangul V (vowel) jamo.
 #[inline]
 pub(crate) fn is_hangul_vpart(c: char) -> bool {
     let cp = c as u32;
-    cp >= V_BASE && cp < V_BASE + V_COUNT
+    (V_BASE..V_BASE + V_COUNT).contains(&cp)
 }
 
 /// Check if a character is a Hangul T (trailing consonant) jamo.
@@ -90,7 +90,7 @@ pub(crate) fn compose_hangul(a: char, b: char) -> Option<char> {
     }
     // Case 2: LV + T -> LVT
     let s_index = a_cp.wrapping_sub(S_BASE);
-    if s_index < S_COUNT && s_index % T_COUNT == 0 {
+    if s_index < S_COUNT && s_index.is_multiple_of(T_COUNT) {
         let t_index = b_cp.wrapping_sub(T_BASE);
         if t_index > 0 && t_index < T_COUNT {
             return Some(unsafe { char::from_u32_unchecked(a_cp + t_index) });
@@ -104,7 +104,7 @@ pub(crate) fn compose_hangul(a: char, b: char) -> Option<char> {
 pub(crate) fn hangul_decomposition_length(c: char) -> usize {
     debug_assert!(is_hangul_syllable(c));
     let s_index = c as u32 - S_BASE;
-    if s_index % T_COUNT == 0 { 2 } else { 3 }
+    if s_index.is_multiple_of(T_COUNT) { 2 } else { 3 }
 }
 
 #[cfg(test)]

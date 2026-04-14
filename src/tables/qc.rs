@@ -3,7 +3,6 @@
 // Unicode version: 16.0.0
 
 /// Quick-check values: Y=0, M=1, N=2.
-
 /// BMP block index for NFC_QC quick-check trie.
 pub(crate) static NFC_QC_BMP_INDEX: &[u16] = &[
     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,

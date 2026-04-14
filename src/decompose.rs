@@ -74,11 +74,11 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
             let mut i = 0;
             while i < data.len() {
                 let unit = data[i];
-                let ch = if unit >= 0xD800 && unit <= 0xDBFF && i + 1 < data.len() {
+                let ch = if (0xD800..=0xDBFF).contains(&unit) && i + 1 < data.len() {
                     // High surrogate: decode pair
                     let high = unit;
                     let low = data[i + 1];
-                    if low >= 0xDC00 && low <= 0xDFFF {
+                    if (0xDC00..=0xDFFF).contains(&low) {
                         let cp = ((high as u32 - 0xD800) << 10)
                             + (low as u32 - 0xDC00)
                             + 0x10000;

@@ -67,13 +67,9 @@ mod tests {
 
     fn has_sse42() -> bool {
         #[cfg(target_feature = "sse4.2")]
-        {
-            true
-        }
+        return true;
         #[cfg(not(target_feature = "sse4.2"))]
-        {
-            std::is_x86_feature_detected!("sse4.2")
-        }
+        return std::is_x86_feature_detected!("sse4.2");
     }
 
     #[test]

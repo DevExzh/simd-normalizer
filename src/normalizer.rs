@@ -374,7 +374,41 @@ pub struct NfkcNormalizer;
 /// NFKD normalizer: Compatibility Decomposition.
 pub struct NfkdNormalizer;
 
+impl Default for NfcNormalizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for NfdNormalizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for NfkcNormalizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for NfkdNormalizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NfcNormalizer {
+    /// Create a new NFC normalizer.
+    pub fn new() -> Self {
+        NfcNormalizer
+    }
+
+    /// Run the NFC quick-check algorithm on `input`.
+    pub fn quick_check(&self, input: &str) -> crate::quick_check::IsNormalized {
+        quick_check::quick_check_nfc(input)
+    }
+
     /// Normalize the input string to NFC form.
     ///
     /// Returns `Cow::Borrowed` if the input is already in NFC.
@@ -399,6 +433,16 @@ impl NfcNormalizer {
 }
 
 impl NfdNormalizer {
+    /// Create a new NFD normalizer.
+    pub fn new() -> Self {
+        NfdNormalizer
+    }
+
+    /// Run the NFD quick-check algorithm on `input`.
+    pub fn quick_check(&self, input: &str) -> crate::quick_check::IsNormalized {
+        quick_check::quick_check_nfd(input)
+    }
+
     /// Normalize the input string to NFD form.
     ///
     /// Returns `Cow::Borrowed` if the input is already in NFD.
@@ -423,6 +467,16 @@ impl NfdNormalizer {
 }
 
 impl NfkcNormalizer {
+    /// Create a new NFKC normalizer.
+    pub fn new() -> Self {
+        NfkcNormalizer
+    }
+
+    /// Run the NFKC quick-check algorithm on `input`.
+    pub fn quick_check(&self, input: &str) -> crate::quick_check::IsNormalized {
+        quick_check::quick_check_nfkc(input)
+    }
+
     /// Normalize the input string to NFKC form.
     ///
     /// Returns `Cow::Borrowed` if the input is already in NFKC.
@@ -447,6 +501,16 @@ impl NfkcNormalizer {
 }
 
 impl NfkdNormalizer {
+    /// Create a new NFKD normalizer.
+    pub fn new() -> Self {
+        NfkdNormalizer
+    }
+
+    /// Run the NFKD quick-check algorithm on `input`.
+    pub fn quick_check(&self, input: &str) -> crate::quick_check::IsNormalized {
+        quick_check::quick_check_nfkd(input)
+    }
+
     /// Normalize the input string to NFKD form.
     ///
     /// Returns `Cow::Borrowed` if the input is already in NFKD.

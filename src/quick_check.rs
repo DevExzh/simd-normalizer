@@ -12,9 +12,12 @@ use crate::tables;
 
 /// Result of a quick-check test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IsNormalized {
+pub enum IsNormalized {
+    /// The string is definitely in the target normalization form.
     Yes,
+    /// The string is definitely *not* in the target normalization form.
     No,
+    /// The string *might* not be normalized; a full check is required.
     Maybe,
 }
 

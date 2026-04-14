@@ -1,0 +1,23 @@
+[package]
+name = "simd-normalizer"
+version = "0.1.0"
+edition = "2024"
+description = "SIMD-accelerated Unicode normalization (NFC, NFD, NFKC, NFKD)"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["unicode", "normalization", "simd", "nfc", "nfd"]
+categories = ["text-processing", "no-std"]
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = []
+
+[dev-dependencies]
+proptest = "1"
+unicode-normalization = "0.1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "bench"
+harness = false

@@ -1,8 +1,668 @@
 #!/usr/bin/env python3
-"""Generate static Unicode tables for simd-normalizer from UCD data files."""
+"""
+Generate Rust source files for simd-normalizer from the Unicode Character Database.
+
+Usage:
+    python3 scripts/generate_tables.py
+
+Downloads UCD files for Unicode 16.0 and generates:
+    src/tables/decomposition.rs
+    src/tables/composition.rs
+    src/tables/ccc.rs
+    src/tables/qc.rs
+"""
+
+import os
+import sys
+import urllib.request
+import hashlib
+from pathlib import Path
+from collections import defaultdict
+
+UNICODE_VERSION = "16.0.0"
+UCD_BASE_URL = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
+
+UCD_FILES = {
+    "UnicodeData.txt": f"{UCD_BASE_URL}/UnicodeData.txt",
+    "CompositionExclusions.txt": f"{UCD_BASE_URL}/CompositionExclusions.txt",
+    "DerivedNormalizationProps.txt": f"{UCD_BASE_URL}/DerivedNormalizationProps.txt",
+}
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+CACHE_DIR = SCRIPT_DIR / "ucd_cache"
+PROJECT_ROOT = SCRIPT_DIR.parent
+OUTPUT_DIR = PROJECT_ROOT / "src" / "tables"
+
+# Hangul constants
+S_BASE = 0xAC00
+L_BASE = 0x1100
+V_BASE = 0x1161
+T_BASE = 0x11A7
+L_COUNT = 19
+V_COUNT = 21
+T_COUNT = 28
+N_COUNT = V_COUNT * T_COUNT
+S_COUNT = L_COUNT * N_COUNT
+
+
+# ---------------------------------------------------------------------------
+# Step 1: Download UCD files
+# ---------------------------------------------------------------------------
+
+def download_ucd_files():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    for filename, url in UCD_FILES.items():
+        dest = CACHE_DIR / filename
+        if dest.exists():
+            print(f"  [cached] {filename}")
+            continue
+        print(f"  [download] {filename} from {url}")
+        urllib.request.urlretrieve(url, dest)
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Parse UnicodeData.txt
+# ---------------------------------------------------------------------------
+
+def parse_unicode_data():
+    path = CACHE_DIR / "UnicodeData.txt"
+    ccc_map = {}
+    canon_decomp = {}
+    compat_decomp = {}
+    char_names = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            fields = line.split(";")
+            cp = int(fields[0], 16)
+            name = fields[1]
+            ccc = int(fields[3])
+            decomp_field = fields[5].strip()
+            char_names[cp] = name
+            if ccc != 0:
+                ccc_map[cp] = ccc
+            if decomp_field:
+                if decomp_field.startswith("<"):
+                    tag_end = decomp_field.index(">")
+                    mapping_str = decomp_field[tag_end + 1:].strip()
+                    if mapping_str:
+                        cps = [int(x, 16) for x in mapping_str.split()]
+                        compat_decomp[cp] = cps
+                else:
+                    cps = [int(x, 16) for x in decomp_field.split()]
+                    canon_decomp[cp] = cps
+    return ccc_map, canon_decomp, compat_decomp, char_names
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Parse CompositionExclusions.txt
+# ---------------------------------------------------------------------------
+
+def parse_composition_exclusions():
+    path = CACHE_DIR / "CompositionExclusions.txt"
+    exclusions = set()
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "#" in line:
+                line = line[:line.index("#")].strip()
+            if not line:
+                continue
+            cp = int(line.split()[0], 16)
+            exclusions.add(cp)
+    return exclusions
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Parse DerivedNormalizationProps.txt
+# ---------------------------------------------------------------------------
+
+def parse_derived_normalization_props():
+    path = CACHE_DIR / "DerivedNormalizationProps.txt"
+    qc_props = defaultdict(dict)
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "#" in line:
+                line = line[:line.index("#")].strip()
+            if not line:
+                continue
+            parts = line.split(";")
+            if len(parts) < 2:
+                continue
+            range_str = parts[0].strip()
+            prop_part = parts[1].strip()
+            prop_fields = prop_part.split()
+            if not prop_fields:
+                continue
+            prop_name = prop_fields[0]
+            if prop_name not in ("NFC_QC", "NFD_QC", "NFKC_QC", "NFKD_QC"):
+                continue
+            value = prop_fields[1] if len(prop_fields) >= 2 else "N"
+            if ".." in range_str:
+                start_str, end_str = range_str.split("..")
+                start = int(start_str, 16)
+                end = int(end_str, 16)
+            else:
+                start = int(range_str, 16)
+                end = start
+            for cp in range(start, end + 1):
+                qc_props[prop_name][cp] = value
+    return dict(qc_props)
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Full recursive decomposition builder
+# ---------------------------------------------------------------------------
+
+def build_full_decompositions(canon_decomp, compat_decomp, ccc_map):
+    def _recursive_canonical(cp, memo):
+        if cp in memo:
+            return memo[cp]
+        if cp not in canon_decomp:
+            memo[cp] = [cp]
+            return [cp]
+        result = []
+        for sub_cp in canon_decomp[cp]:
+            result.extend(_recursive_canonical(sub_cp, memo))
+        memo[cp] = result
+        return result
+
+    def _recursive_compat(cp, memo, canon_memo):
+        if cp in memo:
+            return memo[cp]
+        if cp in compat_decomp:
+            raw = compat_decomp[cp]
+        elif cp in canon_decomp:
+            raw = canon_decomp[cp]
+        else:
+            memo[cp] = [cp]
+            return [cp]
+        result = []
+        for sub_cp in raw:
+            result.extend(_recursive_compat(sub_cp, memo, canon_memo))
+        memo[cp] = result
+        return result
+
+    canon_memo = {}
+    full_canon = {}
+    for cp in canon_decomp:
+        decomp = _recursive_canonical(cp, canon_memo)
+        if decomp != [cp]:
+            full_canon[cp] = decomp
+
+    compat_memo = {}
+    full_compat = {}
+    all_compat_cps = set(canon_decomp.keys()) | set(compat_decomp.keys())
+    for cp in all_compat_cps:
+        decomp = _recursive_compat(cp, compat_memo, canon_memo)
+        if decomp != [cp]:
+            full_compat[cp] = decomp
+
+    return full_canon, full_compat
+
+
+# ---------------------------------------------------------------------------
+# Step 6: Composition pair extractor
+# ---------------------------------------------------------------------------
+
+def build_composition_pairs(canon_decomp, exclusions, ccc_map):
+    pairs = []
+    for cp, decomp in canon_decomp.items():
+        if len(decomp) != 2:
+            continue
+        a, b = decomp
+        if S_BASE <= cp < S_BASE + S_COUNT:
+            continue
+        if cp in exclusions:
+            continue
+        if ccc_map.get(a, 0) != 0:
+            continue
+        pairs.append((a, b, cp))
+    pairs.sort(key=lambda t: (t[0], t[1]))
+    return pairs
+
+
+# ---------------------------------------------------------------------------
+# Step 7: Trie builder with block deduplication
+# ---------------------------------------------------------------------------
+
+BLOCK_SIZE = 32
+
+
+class TrieBuilder:
+    def __init__(self, default_value=0):
+        self.default_value = default_value
+        self.cp_values = {}
+
+    def set(self, cp, value):
+        if value != self.default_value:
+            self.cp_values[cp] = value
+
+    def build(self):
+        bmp_blocks = []
+        for block_start in range(0, 0x10000, BLOCK_SIZE):
+            block = []
+            for offset in range(BLOCK_SIZE):
+                cp = block_start + offset
+                block.append(self.cp_values.get(cp, self.default_value))
+            bmp_blocks.append(tuple(block))
+
+        supp_data_blocks = []
+        for block_start in range(0x10000, 0x110000, BLOCK_SIZE):
+            block = []
+            for offset in range(BLOCK_SIZE):
+                cp = block_start + offset
+                block.append(self.cp_values.get(cp, self.default_value))
+            supp_data_blocks.append(tuple(block))
+
+        block_to_offset = {}
+        data = []
+
+        def intern_block(block):
+            if block in block_to_offset:
+                return block_to_offset[block]
+            offset = len(data)
+            block_to_offset[block] = offset
+            data.extend(block)
+            return offset
+
+        default_block = tuple([self.default_value] * BLOCK_SIZE)
+        intern_block(default_block)
+
+        bmp_index = []
+        for block in bmp_blocks:
+            bmp_index.append(intern_block(block))
+
+        supp_data_offsets = []
+        for block in supp_data_blocks:
+            supp_data_offsets.append(intern_block(block))
+
+        l2_block_size = 64
+        num_l1_entries = (0x110000 - 0x10000) // 2048
+
+        supp_l2_blocks = []
+        for l1_idx in range(num_l1_entries):
+            start = l1_idx * l2_block_size
+            end = start + l2_block_size
+            l2_block = tuple(supp_data_offsets[start:end])
+            supp_l2_blocks.append(l2_block)
+
+        l2_block_to_offset = {}
+        supp_index2 = []
+
+        def intern_l2_block(block):
+            if block in l2_block_to_offset:
+                return l2_block_to_offset[block]
+            offset = len(supp_index2)
+            l2_block_to_offset[block] = offset
+            supp_index2.extend(block)
+            return offset
+
+        default_l2 = tuple([intern_block(default_block)] * l2_block_size)
+        intern_l2_block(default_l2)
+
+        supp_index1 = []
+        for l2_block in supp_l2_blocks:
+            supp_index1.append(intern_l2_block(l2_block))
+
+        return bmp_index, data, supp_index1, supp_index2
+
+
+# ---------------------------------------------------------------------------
+# Step 8: U32 trie value packer
+# ---------------------------------------------------------------------------
+
+BACKWARD_COMBINING = 1 << 31
+NON_ROUND_TRIP     = 1 << 30
+HAS_DECOMPOSITION  = 1 << 29
+IS_EXPANSION       = 1 << 24
+CCC_SHIFT          = 16
+CCC_MASK           = 0xFF << CCC_SHIFT
+DECOMP_INFO_MASK   = 0xFFFF
+
+
+def pack_trie_value(ccc=0, has_decomp=False, decomp_info=0,
+                    backward_combining=False, non_round_trip=False,
+                    is_expansion=False):
+    value = 0
+    if backward_combining:
+        value |= BACKWARD_COMBINING
+    if non_round_trip:
+        value |= NON_ROUND_TRIP
+    if has_decomp:
+        value |= HAS_DECOMPOSITION
+    if is_expansion:
+        value |= IS_EXPANSION
+    value |= (ccc & 0xFF) << CCC_SHIFT
+    value |= decomp_info & DECOMP_INFO_MASK
+    return value
+
+
+def pack_singleton_decomp(target_cp, ccc=0, non_round_trip=False,
+                          backward_combining=False):
+    assert target_cp <= 0xFFFD, f"Singleton target too large: U+{target_cp:04X}"
+    return pack_trie_value(
+        ccc=ccc, has_decomp=True, decomp_info=target_cp,
+        backward_combining=backward_combining, non_round_trip=non_round_trip,
+    )
+
+
+def pack_expansion_decomp(offset, ccc=0, non_round_trip=False,
+                           backward_combining=False):
+    assert offset >= 0 and offset <= 0xFFFF, f"Expansion offset too large: {offset}"
+    return pack_trie_value(
+        ccc=ccc, has_decomp=True, decomp_info=offset,
+        backward_combining=backward_combining, non_round_trip=non_round_trip,
+        is_expansion=True,
+    )
+
+
+def build_decomp_trie(full_decomp, ccc_map, qc_props, qc_name_nrt):
+    trie = TrieBuilder()
+    expansions = []
+    expansion_index = {}
+    nrt_set = set()
+    if qc_name_nrt in qc_props:
+        nrt_set = set(qc_props[qc_name_nrt].keys())
+
+    for cp in range(0x110000):
+        ccc = ccc_map.get(cp, 0)
+        is_nrt = cp in nrt_set
+        if cp in full_decomp:
+            decomp = full_decomp[cp]
+            backward = ccc_map.get(decomp[0], 0) != 0 if decomp else False
+            if len(decomp) == 1 and decomp[0] <= 0xFFFD:
+                value = pack_singleton_decomp(
+                    decomp[0], ccc=ccc, non_round_trip=is_nrt,
+                    backward_combining=backward,
+                )
+            else:
+                decomp_tuple = tuple(decomp)
+                if decomp_tuple in expansion_index:
+                    offset = expansion_index[decomp_tuple]
+                else:
+                    offset = len(expansions)
+                    expansion_index[decomp_tuple] = offset
+                    # Store length as prefix, then the code points
+                    exp_len = 0
+                    for dcp in decomp:
+                        exp_len += 1 if dcp <= 0xFFFF else 2
+                    expansions.append(exp_len)
+                    for dcp in decomp:
+                        if dcp <= 0xFFFF:
+                            expansions.append(dcp)
+                        else:
+                            dcp_adj = dcp - 0x10000
+                            high = 0xD800 + (dcp_adj >> 10)
+                            low = 0xDC00 + (dcp_adj & 0x3FF)
+                            expansions.append(high)
+                            expansions.append(low)
+                if offset > 0xFFFF:
+                    print(f"  WARNING: skipping U+{cp:04X}: expansion offset={offset} exceeds 16 bits")
+                    continue
+                value = pack_expansion_decomp(
+                    offset, ccc=ccc, non_round_trip=is_nrt,
+                    backward_combining=backward,
+                )
+        elif ccc != 0:
+            value = pack_trie_value(ccc=ccc, non_round_trip=is_nrt)
+        elif is_nrt:
+            value = pack_trie_value(non_round_trip=True)
+        else:
+            continue
+        trie.set(cp, value)
+    return trie, expansions
+
+
+# ---------------------------------------------------------------------------
+# Step 9: Rust code generation helpers
+# ---------------------------------------------------------------------------
+
+def format_u16_array(name, data, doc=None):
+    lines = []
+    if doc:
+        lines.append(f"/// {doc}")
+    lines.append(f"pub(crate) static {name}: &[u16] = &[")
+    for i in range(0, len(data), 16):
+        chunk = data[i:i + 16]
+        vals = ", ".join(f"0x{v:04X}" for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    return "\n".join(lines)
+
+
+def format_u32_array(name, data, doc=None):
+    lines = []
+    if doc:
+        lines.append(f"/// {doc}")
+    lines.append(f"pub(crate) static {name}: &[u32] = &[")
+    for i in range(0, len(data), 8):
+        chunk = data[i:i + 8]
+        vals = ", ".join(f"0x{v:08X}" for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    return "\n".join(lines)
+
+
+def format_pair_array(name, pairs, doc=None):
+    lines = []
+    if doc:
+        lines.append(f"/// {doc}")
+    # Use u64 for packed pair since starter or combining can be supplementary
+    lines.append(f"pub(crate) static {name}: &[(u64, u32)] = &[")
+    for a, b, composed in pairs:
+        packed = (a << 21) | b
+        lines.append(f"    (0x{packed:012X}, 0x{composed:08X}),")
+    lines.append("];")
+    return "\n".join(lines)
+
+
+HEADER = """\
+// AUTO-GENERATED by scripts/generate_tables.py -- DO NOT EDIT
+//
+// Unicode version: {version}
+"""
+
+
+def write_decomposition_rs(canon_bmp_idx, canon_data, canon_s1, canon_s2,
+                           canon_expansions,
+                           compat_bmp_idx, compat_data, compat_s1, compat_s2,
+                           compat_expansions):
+    path = OUTPUT_DIR / "decomposition.rs"
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+    parts.append(format_u16_array("CANONICAL_BMP_INDEX", canon_bmp_idx,
+                                  "BMP block index for canonical decomposition trie."))
+    parts.append("")
+    parts.append(format_u32_array("CANONICAL_TRIE_DATA", canon_data,
+                                  "Trie data for canonical decomposition."))
+    parts.append("")
+    parts.append(format_u16_array("CANONICAL_SUPP_INDEX1", canon_s1,
+                                  "Supplementary level-1 index for canonical decomposition."))
+    parts.append("")
+    parts.append(format_u16_array("CANONICAL_SUPP_INDEX2", canon_s2,
+                                  "Supplementary level-2 index for canonical decomposition."))
+    parts.append("")
+    parts.append(format_u16_array("CANONICAL_EXPANSIONS", canon_expansions,
+                                  "Canonical expansion table (BMP multi-char decompositions)."))
+    parts.append("")
+    parts.append(format_u16_array("COMPAT_BMP_INDEX", compat_bmp_idx,
+                                  "BMP block index for compatibility decomposition trie."))
+    parts.append("")
+    parts.append(format_u32_array("COMPAT_TRIE_DATA", compat_data,
+                                  "Trie data for compatibility decomposition."))
+    parts.append("")
+    parts.append(format_u16_array("COMPAT_SUPP_INDEX1", compat_s1,
+                                  "Supplementary level-1 index for compatibility decomposition."))
+    parts.append("")
+    parts.append(format_u16_array("COMPAT_SUPP_INDEX2", compat_s2,
+                                  "Supplementary level-2 index for compatibility decomposition."))
+    parts.append("")
+    parts.append(format_u16_array("COMPAT_EXPANSIONS", compat_expansions,
+                                  "Compatibility expansion table."))
+    parts.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+
+
+def write_composition_rs(composition_pairs):
+    path = OUTPUT_DIR / "composition.rs"
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+    parts.append(format_pair_array(
+        "COMPOSITION_PAIRS", composition_pairs,
+        "Canonical composition pairs: (packed_pair, composed_char).\n"
+        "/// packed_pair = (starter << 21) | combining.\n"
+        "/// Sorted by packed_pair for binary search."
+    ))
+    parts.append("")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+
+
+# ---------------------------------------------------------------------------
+# Step 10: CCC trie generation
+# ---------------------------------------------------------------------------
+
+def write_ccc_rs(ccc_map):
+    path = OUTPUT_DIR / "ccc.rs"
+    trie = TrieBuilder()
+    for cp, ccc in ccc_map.items():
+        trie.set(cp, ccc)
+    bmp_idx, data, s1, s2 = trie.build()
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+    parts.append(format_u16_array("CCC_BMP_INDEX", bmp_idx,
+                                  "BMP block index for CCC trie."))
+    parts.append("")
+    parts.append(format_u32_array("CCC_TRIE_DATA", data,
+                                  "Trie data for canonical combining class lookup."))
+    parts.append("")
+    parts.append(format_u16_array("CCC_SUPP_INDEX1", s1,
+                                  "Supplementary level-1 index for CCC trie."))
+    parts.append("")
+    parts.append(format_u16_array("CCC_SUPP_INDEX2", s2,
+                                  "Supplementary level-2 index for CCC trie."))
+    parts.append("")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+
+
+# ---------------------------------------------------------------------------
+# Step 11: Quick-check property generation
+# ---------------------------------------------------------------------------
+
+def write_qc_rs(qc_props):
+    path = OUTPUT_DIR / "qc.rs"
+    qc_value_map = {"Y": 0, "M": 1, "N": 2}
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+    parts.append("/// Quick-check values: Y=0, M=1, N=2.")
+    parts.append("")
+    for prop_name in ["NFC_QC", "NFD_QC", "NFKC_QC", "NFKD_QC"]:
+        entries = qc_props.get(prop_name, {})
+        trie = TrieBuilder()
+        for cp, value_str in entries.items():
+            value = qc_value_map.get(value_str, 0)
+            if value != 0:
+                trie.set(cp, value)
+        bmp_idx, data, s1, s2 = trie.build()
+        prefix = prop_name.upper().replace("_", "_")
+        parts.append(format_u16_array(f"{prefix}_BMP_INDEX", bmp_idx,
+                                      f"BMP block index for {prop_name} quick-check trie."))
+        parts.append("")
+        parts.append(format_u32_array(f"{prefix}_TRIE_DATA", data,
+                                      f"Trie data for {prop_name} quick-check."))
+        parts.append("")
+        parts.append(format_u16_array(f"{prefix}_SUPP_INDEX1", s1,
+                                      f"Supplementary level-1 index for {prop_name} quick-check."))
+        parts.append("")
+        parts.append(format_u16_array(f"{prefix}_SUPP_INDEX2", s2,
+                                      f"Supplementary level-2 index for {prop_name} quick-check."))
+        parts.append("")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+
+
+# ---------------------------------------------------------------------------
+# Main orchestrator
+# ---------------------------------------------------------------------------
 
 def main():
-    pass  # TODO: implement table generation
+    print("=== simd-normalizer table generator ===")
+    print(f"Unicode version: {UNICODE_VERSION}\n")
+
+    print("Step 1: Downloading UCD files...")
+    download_ucd_files()
+
+    print("Step 2: Parsing UnicodeData.txt...")
+    ccc_map, canon_decomp, compat_decomp, char_names = parse_unicode_data()
+    print(f"  CCC entries: {len(ccc_map)}")
+    print(f"  Canonical decompositions: {len(canon_decomp)}")
+    print(f"  Compatibility decompositions: {len(compat_decomp)}")
+    print()
+
+    print("Step 3: Parsing CompositionExclusions.txt...")
+    exclusions = parse_composition_exclusions()
+    print(f"  Exclusions: {len(exclusions)}")
+
+    print("Step 4: Parsing DerivedNormalizationProps.txt...")
+    qc_props = parse_derived_normalization_props()
+    for prop_name, entries in sorted(qc_props.items()):
+        print(f"  {prop_name}: {len(entries)} entries")
+    print()
+
+    print("Step 5: Building full recursive decompositions...")
+    full_canon, full_compat = build_full_decompositions(
+        canon_decomp, compat_decomp, ccc_map
+    )
+    print(f"  Full canonical decompositions: {len(full_canon)}")
+    print(f"  Full compatibility decompositions: {len(full_compat)}")
+    print()
+
+    print("Step 6: Building composition pairs...")
+    composition_pairs = build_composition_pairs(canon_decomp, exclusions, ccc_map)
+    print(f"  Composition pairs: {len(composition_pairs)}")
+    print()
+
+    print("Step 7: Building canonical decomposition trie...")
+    canon_trie_builder, canon_expansions = build_decomp_trie(
+        full_canon, ccc_map, qc_props, "NFC_QC"
+    )
+    canon_bmp_idx, canon_data, canon_s1, canon_s2 = canon_trie_builder.build()
+    print(f"  Canonical trie: data={len(canon_data)}, expansions={len(canon_expansions)}")
+
+    print("Step 8: Building compatibility decomposition trie...")
+    compat_trie_builder, compat_expansions = build_decomp_trie(
+        full_compat, ccc_map, qc_props, "NFKC_QC"
+    )
+    compat_bmp_idx, compat_data, compat_s1, compat_s2 = compat_trie_builder.build()
+    print(f"  Compat trie: data={len(compat_data)}, expansions={len(compat_expansions)}")
+    print()
+
+    print("Step 9: Generating Rust source files...")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    write_decomposition_rs(
+        canon_bmp_idx, canon_data, canon_s1, canon_s2, canon_expansions,
+        compat_bmp_idx, compat_data, compat_s1, compat_s2, compat_expansions,
+    )
+    write_composition_rs(composition_pairs)
+    write_ccc_rs(ccc_map)
+    write_qc_rs(qc_props)
+
+    print()
+    print("=== Table generation complete ===")
+
 
 if __name__ == "__main__":
     main()

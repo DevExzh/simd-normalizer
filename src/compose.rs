@@ -5,6 +5,7 @@
 //! Provides pairwise character composition and the combining-sequence
 //! composition algorithm described in UAX#15 Section 4.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ccc::CharAndCcc;
@@ -13,7 +14,7 @@ use crate::tables;
 
 /// Try to compose two characters into one.
 /// Checks Hangul first (algorithmic), then table lookup.
-#[inline]
+#[inline(always)]
 pub(crate) fn compose(a: char, b: char) -> Option<char> {
     hangul::compose_hangul(a, b).or_else(|| tables::compose_pair(a, b))
 }
@@ -63,6 +64,62 @@ pub(crate) fn compose_combining_sequence(
     }
 
     (current_starter, remaining)
+}
+
+/// Like [`compose_combining_sequence`], but writes results directly to `out`,
+/// avoiding the heap allocation for the remaining-characters `Vec`.
+///
+/// Uses a `u32` bitmask to track which combining entries were consumed by
+/// composition, supporting up to 32 combining marks without allocation.
+/// Sequences longer than 32 marks fall back to the allocating version.
+pub(crate) fn compose_combining_sequence_into(
+    starter: char,
+    combining: &[CharAndCcc],
+    out: &mut String,
+) {
+    if combining.is_empty() {
+        out.push(starter);
+        return;
+    }
+
+    // For sequences > 32, fall back to the allocating version.
+    if combining.len() > 32 {
+        let (composed, remaining) = compose_combining_sequence(starter, combining);
+        out.push(composed);
+        for ch in &remaining {
+            out.push(*ch);
+        }
+        return;
+    }
+
+    let mut current_starter = starter;
+    let mut last_ccc: Option<u8> = None;
+    let mut composed_mask: u32 = 0;
+
+    for (i, entry) in combining.iter().enumerate() {
+        let blocked = match last_ccc {
+            None => false,
+            Some(prev_ccc) => prev_ccc >= entry.ccc,
+        };
+
+        if !blocked
+            && let Some(composed) = compose(current_starter, entry.ch)
+        {
+            current_starter = composed;
+            composed_mask |= 1u32 << i;
+            continue;
+        }
+
+        last_ccc = Some(entry.ccc);
+    }
+
+    out.push(current_starter);
+    for (i, entry) in combining.iter().enumerate() {
+        if (composed_mask & (1u32 << i)) != 0 {
+            continue;
+        }
+        out.push(entry.ch);
+    }
 }
 
 #[cfg(test)]

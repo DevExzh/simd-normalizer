@@ -6,13 +6,13 @@
 
 use alloc::borrow::Cow;
 use alloc::string::String;
-use alloc::vec::Vec;
 
-use crate::ccc::{CccBuffer, CharAndCcc};
+use crate::ccc::CccBuffer;
 use crate::compose;
 use crate::decompose::{self, DecompForm};
 use crate::quick_check;
 use crate::simd;
+use crate::simd::prefetch;
 use crate::utf8;
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,26 @@ impl Form {
             Form::Nfkc | Form::Nfkd => DecompForm::Compatible,
         }
     }
+
+    /// Estimated output capacity for a given input length.
+    #[inline]
+    fn estimated_capacity(self, input_len: usize) -> usize {
+        match self {
+            Form::Nfc | Form::Nfkc => input_len,
+            Form::Nfd | Form::Nfkd => input_len + input_len / 2,
+        }
+    }
+
+    /// Run quick_check for this normalization form.
+    #[inline]
+    fn quick_check(self, input: &str) -> quick_check::IsNormalized {
+        match self {
+            Form::Nfc => quick_check::quick_check_nfc(input),
+            Form::Nfd => quick_check::quick_check_nfd(input),
+            Form::Nfkc => quick_check::quick_check_nfkc(input),
+            Form::Nfkd => quick_check::quick_check_nfkd(input),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +97,7 @@ struct NormState {
 }
 
 impl NormState {
+    #[inline]
     fn new() -> Self {
         NormState {
             current_starter: None,
@@ -87,16 +108,18 @@ impl NormState {
     /// Flush the current accumulation (starter + combining marks) to `out`.
     ///
     /// If `composes` is true, applies canonical composition.
+    #[inline]
     fn flush(&mut self, out: &mut String, composes: bool) {
         let starter = match self.current_starter.take() {
             Some(s) => s,
             None => {
                 // No starter -- flush any orphan combining marks (leading combiners).
                 if !self.ccc_buf.is_empty() {
-                    let sorted: Vec<CharAndCcc> = self.ccc_buf.sort_and_drain().collect();
-                    for entry in &sorted {
+                    self.ccc_buf.sort_in_place();
+                    for entry in self.ccc_buf.as_slice() {
                         out.push(entry.ch);
                     }
+                    self.ccc_buf.clear();
                 }
                 return;
             }
@@ -108,22 +131,19 @@ impl NormState {
             return;
         }
 
-        // Collect and sort combining marks by CCC.
-        let sorted: Vec<CharAndCcc> = self.ccc_buf.sort_and_drain().collect();
+        // Sort combining marks by CCC in place.
+        self.ccc_buf.sort_in_place();
 
         if composes {
-            let (composed, remaining) = compose::compose_combining_sequence(starter, &sorted);
-            out.push(composed);
-            for ch in &remaining {
-                out.push(*ch);
-            }
+            compose::compose_combining_sequence_into(starter, self.ccc_buf.as_slice(), out);
         } else {
             // Decomposition only: emit starter + sorted marks.
             out.push(starter);
-            for entry in &sorted {
+            for entry in self.ccc_buf.as_slice() {
                 out.push(entry.ch);
             }
         }
+        self.ccc_buf.clear();
     }
 
     /// Process a single character (after decomposition) into the accumulation state.
@@ -131,6 +151,7 @@ impl NormState {
     /// Characters with CCC == 0 are starters. When a new starter arrives, the
     /// previous accumulation is flushed. In composition mode, starter-to-starter
     /// composition is attempted first (required for Hangul jamo L+V, LV+T).
+    #[inline]
     fn feed_entry(&mut self, ch: char, ccc: u8, out: &mut String, composes: bool) {
         if ccc == 0 {
             // New starter.
@@ -158,15 +179,19 @@ impl NormState {
 // ---------------------------------------------------------------------------
 
 /// Decompose a character and feed each resulting entry into the accumulation state.
-fn process_char(ch: char, state: &mut NormState, out: &mut String, form: Form) {
-    let mut decomp_buf = CccBuffer::new();
-    decompose::decompose(ch, &mut decomp_buf, form.decomp_form());
-
-    // Walk the decomposed entries.
-    let entries: Vec<CharAndCcc> = decomp_buf.as_slice().to_vec();
+#[inline]
+fn process_char(
+    ch: char,
+    state: &mut NormState,
+    out: &mut String,
+    form: Form,
+    decomp_buf: &mut CccBuffer,
+) {
     decomp_buf.clear();
+    decompose::decompose(ch, decomp_buf, form.decomp_form());
 
-    for entry in &entries {
+    // Walk the decomposed entries directly from the buffer slice.
+    for entry in decomp_buf.as_slice() {
         state.feed_entry(entry.ch, entry.ccc, out, form.composes());
     }
 }
@@ -181,11 +206,17 @@ fn normalize_scalar<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         return Cow::Borrowed(input);
     }
 
+    // Quick-check: if the string is definitely already normalized, return early.
+    if form.quick_check(input) == quick_check::IsNormalized::Yes {
+        return Cow::Borrowed(input);
+    }
+
     let mut out = String::with_capacity(input.len());
     let mut state = NormState::new();
+    let mut decomp_buf = CccBuffer::new();
 
     for ch in input.chars() {
-        process_char(ch, &mut state, &mut out, form);
+        process_char(ch, &mut state, &mut out, form, &mut decomp_buf);
     }
 
     // Flush any remaining state.
@@ -210,12 +241,25 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     let bytes = input.as_bytes();
     let len = bytes.len();
 
-    // Short inputs: use scalar path directly.
+    // Short inputs: use scalar path directly (includes quick_check).
     if len < 64 {
         return normalize_scalar(input, form);
     }
 
     let bound = form.passthrough_bound();
+
+    // Quick-check fast path: if the first byte indicates non-passthrough
+    // content, check if the entire string is already normalized before
+    // entering the SIMD scan loop. This avoids the full normalize path for
+    // already-normalized non-ASCII text (precomposed, CJK, Hangul, etc.).
+    // Cost: 1 byte check + optional O(n) quick_check.
+    // The SIMD path remains optimal for ASCII-heavy inputs.
+    if bytes[0] >= bound
+        && form.quick_check(input) == quick_check::IsNormalized::Yes
+    {
+        return Cow::Borrowed(input);
+    }
+
     let composes = form.composes();
 
     // Track whether we have transitioned to Owned mode.
@@ -225,16 +269,23 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     //   - copied/processed into `owned` (Owned mode).
     let mut last_written: usize = 0;
     let mut state = NormState::new();
+    let mut decomp_buf = CccBuffer::new();
 
     let mut pos: usize = 0;
+    let ptr = bytes.as_ptr();
 
     // SIMD chunk loop.
     while pos + 64 <= len {
         let chunk_start = pos;
-        let ptr = bytes.as_ptr();
 
         // SAFETY: pos + 64 <= len, so ptr.add(pos) is valid for 64 bytes.
-        let mask = unsafe { simd::scan_chunk(ptr.add(pos), bound) };
+        // Prefetch pointers use wrapping_add because they may exceed the
+        // allocation; prefetch is a non-faulting hint on all architectures.
+        let mask = unsafe {
+            let prefetch_l1 = ptr.wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
+            let prefetch_l2 = ptr.wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
+            simd::scan_and_prefetch(ptr.add(pos), prefetch_l1, prefetch_l2, bound)
+        };
 
         if mask == 0 {
             // All passthrough: no bytes >= bound in this chunk.
@@ -243,9 +294,14 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         }
 
         // There are non-passthrough bytes in this chunk.
-        // If we haven't switched to Owned yet, do so now.
+        // If we haven't switched to Owned yet, check if the entire string
+        // is already normalized (avoids allocation for already-normalized text
+        // that contains non-passthrough bytes, e.g. precomposed characters).
         if owned.is_none() {
-            let mut s = String::with_capacity(len + len / 4);
+            if form.quick_check(input) == quick_check::IsNormalized::Yes {
+                return Cow::Borrowed(input);
+            }
+            let mut s = String::with_capacity(form.estimated_capacity(len));
             // Copy all validated passthrough bytes up to chunk_start.
             s.push_str(&input[last_written..chunk_start]);
             owned = Some(s);
@@ -279,9 +335,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             // potential starter for the following combining mark. Passthrough
             // bytes are guaranteed to be ASCII (< 0xC0) and thus single-byte
             // starters with CCC 0.
-            if byte_pos > last_written
-                && let Some(ref mut out) = owned
-            {
+            if byte_pos > last_written {
+                // SAFETY: `owned` is guaranteed to be `Some` after the
+                // `owned.is_none()` check above (line 266-272).
+                let out = unsafe { owned.as_mut().unwrap_unchecked() };
                 state.flush(out, composes);
                 let pass = &input[last_written..byte_pos];
                 let n = pass.len();
@@ -301,8 +358,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             last_written = byte_pos + width;
 
             // Process through decomposition + accumulation.
-            if let Some(ref mut out) = owned {
-                process_char(ch, &mut state, out, form);
+            // SAFETY: `owned` is guaranteed to be `Some` (see above).
+            {
+                let out = unsafe { owned.as_mut().unwrap_unchecked() };
+                process_char(ch, &mut state, out, form, &mut decomp_buf);
             }
         }
 
@@ -316,7 +375,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
 
         if tail_has_work {
             if owned.is_none() {
-                let mut s = String::with_capacity(len + len / 4);
+                if form.quick_check(input) == quick_check::IsNormalized::Yes {
+                    return Cow::Borrowed(input);
+                }
+                let mut s = String::with_capacity(form.estimated_capacity(len));
                 s.push_str(&input[last_written..pos]);
                 owned = Some(s);
                 last_written = pos;
@@ -338,9 +400,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 // Copy passthrough bytes before this char.
                 // Flush NormState first to preserve correct ordering.
                 // In composition mode, keep the last passthrough char as starter.
-                if tail_pos > last_written
-                    && let Some(ref mut out) = owned
-                {
+                if tail_pos > last_written {
+                    // SAFETY: `owned` is guaranteed to be `Some` after the
+                    // `owned.is_none()` check above (line 339-344).
+                    let out = unsafe { owned.as_mut().unwrap_unchecked() };
                     state.flush(out, composes);
                     let pass = &input[last_written..tail_pos];
                     let n = pass.len();
@@ -358,8 +421,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 let (ch, width) = utf8::decode_char_at(bytes, tail_pos);
                 last_written = tail_pos + width;
 
-                if let Some(ref mut out) = owned {
-                    process_char(ch, &mut state, out, form);
+                // SAFETY: `owned` is guaranteed to be `Some` (see above).
+                {
+                    let out = unsafe { owned.as_mut().unwrap_unchecked() };
+                    process_char(ch, &mut state, out, form, &mut decomp_buf);
                 }
 
                 tail_pos += width;

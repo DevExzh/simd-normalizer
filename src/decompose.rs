@@ -34,6 +34,7 @@ fn expansion_data(offset: usize, length: usize, form: DecompForm) -> &'static [u
 }
 
 /// Recursively decompose a character, appending results to the CccBuffer.
+#[inline]
 pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
     // Fast path: 7-bit ASCII never decomposes.
     if (c as u32) <= 0x7F {
@@ -56,13 +57,10 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
     let (decomp, ccc) = lookup_decomp(c, form);
     match decomp {
         DecompResult::None => {
-            // Character maps to itself. Use CCC from the decomp trie
-            // (which includes CCC in the packed value).
-            // But for characters without decomposition, the CCC in the decomp
-            // trie might be 0 (not all chars have CCC stored there).
-            // Use the dedicated CCC trie for accurate CCC.
-            let real_ccc = if ccc != 0 { ccc } else { tables::lookup_ccc(c) };
-            output.push(c, real_ccc);
+            // Character maps to itself. CCC is correctly encoded in the
+            // decomposition trie for all characters (the table generator
+            // stores it for both decomposing and non-decomposing code points).
+            output.push(c, ccc);
         }
         DecompResult::Singleton(decomposed) => {
             // Recursively decompose the singleton.
@@ -83,6 +81,7 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
                         i += 2;
                         // SAFETY: cp is a valid Unicode scalar value constructed
                         // from a valid surrogate pair in our generated tables.
+                        debug_assert!(cp <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp));
                         unsafe { char::from_u32_unchecked(cp) }
                     } else {
                         // Malformed: treat high surrogate as-is (shouldn't happen)
@@ -92,6 +91,7 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
                 } else {
                     i += 1;
                     // SAFETY: BMP code points from the table are valid.
+                    debug_assert!(unit <= 0xD7FF || (0xE000..=0xFFFF).contains(&unit));
                     unsafe { char::from_u32_unchecked(unit as u32) }
                 };
                 // Recursively decompose each character from the expansion.

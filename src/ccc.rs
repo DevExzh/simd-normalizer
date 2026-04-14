@@ -71,6 +71,7 @@ impl CccBuffer {
 
     /// Sort entries by CCC (stable sort), then return an iterator that drains
     /// all elements in sorted order. After draining, buffer is empty and reusable.
+    #[cfg(test)]
     pub(crate) fn sort_and_drain(&mut self) -> SortedDrain<'_> {
         if let Some(ref mut vec) = self.overflow {
             vec.sort_by_key(|e| e.ccc);
@@ -78,6 +79,16 @@ impl CccBuffer {
             insertion_sort_by_ccc(&mut self.inline[..self.len]);
         }
         SortedDrain { buf: self, pos: 0 }
+    }
+
+    /// Sort entries by CCC (stable sort) in place. Buffer remains populated
+    /// and can be iterated via `as_slice()`.
+    pub(crate) fn sort_in_place(&mut self) {
+        if let Some(ref mut vec) = self.overflow {
+            vec.sort_by_key(|e| e.ccc);
+        } else {
+            insertion_sort_by_ccc(&mut self.inline[..self.len]);
+        }
     }
 
     /// Clear the buffer for reuse. Overflow Vec capacity is preserved.
@@ -100,11 +111,13 @@ impl CccBuffer {
 }
 
 /// Draining iterator over a CccBuffer after sorting.
+#[cfg(test)]
 pub(crate) struct SortedDrain<'a> {
     buf: &'a mut CccBuffer,
     pos: usize,
 }
 
+#[cfg(test)]
 impl Iterator for SortedDrain<'_> {
     type Item = CharAndCcc;
 
@@ -132,6 +145,7 @@ impl Iterator for SortedDrain<'_> {
     }
 }
 
+#[cfg(test)]
 impl ExactSizeIterator for SortedDrain<'_> {}
 
 /// Stable insertion sort by CCC. Optimal for small arrays (n <= ~8).

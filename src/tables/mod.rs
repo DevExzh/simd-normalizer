@@ -164,6 +164,7 @@ pub(crate) fn decode_decomp(trie_value: u32, expansion_table: &[u16]) -> DecompR
     } else {
         // Singleton BMP decomposition.
         // SAFETY: The table generator guarantees info is a valid BMP code point.
+        debug_assert!(info <= 0xD7FF || (0xE000..=0xFFFF).contains(&info));
         let ch = unsafe { char::from_u32_unchecked(info) };
         DecompResult::Singleton(ch)
     }
@@ -206,12 +207,24 @@ pub(crate) fn lookup_ccc(c: char) -> u8 {
 #[inline]
 pub(crate) fn compose_pair(a: char, b: char) -> Option<char> {
     let key = ((a as u64) << 21) | (b as u64);
-    match composition::COMPOSITION_PAIRS.binary_search_by_key(&key, |&(k, _)| k) {
-        Ok(idx) => {
-            let (_, composed) = composition::COMPOSITION_PAIRS[idx];
-            char::from_u32(composed)
-        }
-        Err(_) => Option::None,
+    let pairs = composition::COMPOSITION_PAIRS;
+    let mut len = pairs.len();
+    let mut base = 0usize;
+
+    while len > 1 {
+        let half = len / 2;
+        // Branchless: if pairs[base + half].0 <= key, advance base.
+        // The compiler should emit cmov for this pattern.
+        base += (pairs[base + half].0 <= key) as usize * half;
+        len -= half;
+    }
+
+    if base < pairs.len() && pairs[base].0 == key {
+        // SAFETY: composition table only contains valid Unicode scalar values
+        debug_assert!(pairs[base].1 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&(pairs[base].1)));
+        Some(unsafe { char::from_u32_unchecked(pairs[base].1) })
+    } else {
+        None
     }
 }
 

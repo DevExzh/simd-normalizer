@@ -40,7 +40,10 @@ impl CodePointTrie {
     #[inline]
     pub(crate) fn get(&self, cp: u32) -> u32 {
         if cp < 0x10000 {
-            self.get_bmp(cp)
+            // SAFETY: cp < 0x10000, and our generated bmp_index has exactly 2048
+            // entries covering the full BMP range. Table generator guarantees
+            // all block pointers produce valid data indices.
+            unsafe { self.get_bmp_unchecked(cp) }
         } else if cp <= 0x10FFFF {
             self.get_supplementary(cp)
         } else {
@@ -49,6 +52,7 @@ impl CodePointTrie {
     }
 
     /// BMP-only lookup path. Two array accesses, no branching.
+    #[allow(dead_code)]
     #[inline(always)]
     fn get_bmp(&self, cp: u32) -> u32 {
         debug_assert!(cp < 0x10000);
@@ -56,6 +60,17 @@ impl CodePointTrie {
         let offset = (cp & BMP_MASK) as usize;
         let base = self.bmp_index[block_idx] as usize;
         self.data[base + offset]
+    }
+
+    /// BMP-only lookup without bounds checks. Use when `cp` is known < 0x10000
+    /// and the trie is guaranteed well-formed (generated tables).
+    #[inline(always)]
+    pub(crate) unsafe fn get_bmp_unchecked(&self, cp: u32) -> u32 {
+        debug_assert!(cp < 0x10000);
+        let block_idx = (cp >> BMP_SHIFT) as usize;
+        let offset = (cp & BMP_MASK) as usize;
+        let base = unsafe { *self.bmp_index.get_unchecked(block_idx) } as usize;
+        unsafe { *self.data.get_unchecked(base + offset) }
     }
 
     /// Supplementary lookup path (U+10000..U+10FFFF).

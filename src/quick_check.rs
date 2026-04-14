@@ -30,6 +30,7 @@ fn qc_value_to_result(v: u8) -> IsNormalized {
 ///
 /// Walks the string character-by-character, checking the QC property and
 /// tracking CCC ordering. Returns as soon as a definitive No is found.
+#[inline]
 fn quick_check_impl(input: &str, qc_lookup: fn(char) -> u8) -> IsNormalized {
     let mut last_ccc: u8 = 0;
     let mut result = IsNormalized::Yes;

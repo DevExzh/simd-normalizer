@@ -9,7 +9,7 @@ use crate::hangul;
 use crate::tables::{self, DecompResult};
 
 /// Which decomposition form to use.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DecompForm {
     Canonical,
     Compatible,

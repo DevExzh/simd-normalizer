@@ -899,3 +899,449 @@ impl NfkdNormalizer {
         quick_check::is_normalized_nfkd(input)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::borrow::Cow;
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    // ===================================================================
+    // 1. Form enum methods
+    // ===================================================================
+
+    #[test]
+    fn passthrough_bound_all_forms_return_0xc0() {
+        assert_eq!(Form::Nfc.passthrough_bound(), 0xC0);
+        assert_eq!(Form::Nfd.passthrough_bound(), 0xC0);
+        assert_eq!(Form::Nfkc.passthrough_bound(), 0xC0);
+        assert_eq!(Form::Nfkd.passthrough_bound(), 0xC0);
+    }
+
+    #[test]
+    fn composes_nfc_nfkc_true_nfd_nfkd_false() {
+        assert!(Form::Nfc.composes());
+        assert!(Form::Nfkc.composes());
+        assert!(!Form::Nfd.composes());
+        assert!(!Form::Nfkd.composes());
+    }
+
+    #[test]
+    fn decomp_form_canonical_vs_compatible() {
+        assert_eq!(Form::Nfc.decomp_form(), DecompForm::Canonical);
+        assert_eq!(Form::Nfd.decomp_form(), DecompForm::Canonical);
+        assert_eq!(Form::Nfkc.decomp_form(), DecompForm::Compatible);
+        assert_eq!(Form::Nfkd.decomp_form(), DecompForm::Compatible);
+    }
+
+    #[test]
+    fn estimated_capacity_nfc_nfkc_same_nfd_nfkd_larger() {
+        let input_len = 100;
+        assert_eq!(Form::Nfc.estimated_capacity(input_len), 100);
+        assert_eq!(Form::Nfkc.estimated_capacity(input_len), 100);
+        assert_eq!(Form::Nfd.estimated_capacity(input_len), 150);
+        assert_eq!(Form::Nfkd.estimated_capacity(input_len), 150);
+    }
+
+    #[test]
+    fn estimated_capacity_zero_length() {
+        assert_eq!(Form::Nfc.estimated_capacity(0), 0);
+        assert_eq!(Form::Nfd.estimated_capacity(0), 0);
+    }
+
+    #[test]
+    fn quick_check_ascii_is_yes_for_all_forms() {
+        let ascii = "Hello, World!";
+        assert_eq!(Form::Nfc.quick_check(ascii), quick_check::IsNormalized::Yes);
+        assert_eq!(Form::Nfd.quick_check(ascii), quick_check::IsNormalized::Yes);
+        assert_eq!(Form::Nfkc.quick_check(ascii), quick_check::IsNormalized::Yes);
+        assert_eq!(Form::Nfkd.quick_check(ascii), quick_check::IsNormalized::Yes);
+    }
+
+    // ===================================================================
+    // 2. NormState state machine
+    // ===================================================================
+
+    #[test]
+    fn normstate_new_has_no_starter_empty_ccc_buf() {
+        let state = NormState::new();
+        assert!(state.current_starter.is_none());
+        assert!(state.ccc_buf.is_empty());
+    }
+
+    #[test]
+    fn feed_entry_single_starter_sets_current_starter() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // Feed a starter (CCC=0)
+        state.feed_entry('A', 0, &mut out, false);
+        assert_eq!(state.current_starter, Some('A'));
+        assert!(state.ccc_buf.is_empty());
+        assert!(out.is_empty()); // No flush yet
+    }
+
+    #[test]
+    fn feed_entry_combining_mark_buffers_in_ccc_buf() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // Set up a starter first
+        state.feed_entry('e', 0, &mut out, false);
+        // Feed combining acute (CCC=230)
+        state.feed_entry('\u{0301}', 230, &mut out, false);
+        assert_eq!(state.current_starter, Some('e'));
+        assert!(!state.ccc_buf.is_empty());
+        assert_eq!(state.ccc_buf.len(), 1);
+        assert_eq!(state.ccc_buf.as_slice()[0].ch, '\u{0301}');
+        assert_eq!(state.ccc_buf.as_slice()[0].ccc, 230);
+    }
+
+    #[test]
+    fn feed_entry_two_starters_first_gets_flushed() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // Feed first starter
+        state.feed_entry('A', 0, &mut out, false);
+        assert!(out.is_empty());
+        // Feed second starter -- first should be flushed to `out`
+        state.feed_entry('B', 0, &mut out, false);
+        assert_eq!(out, "A");
+        assert_eq!(state.current_starter, Some('B'));
+    }
+
+    #[test]
+    fn feed_entry_starter_to_starter_composition_hangul_lv() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // Hangul L
+        state.feed_entry('\u{1100}', 0, &mut out, true);
+        // Hangul V -- should compose with L in compose mode
+        state.feed_entry('\u{1161}', 0, &mut out, true);
+        // The composed syllable should be the current starter
+        assert_eq!(state.current_starter, Some('\u{AC00}'));
+        // Nothing flushed yet
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn feed_entry_starter_to_starter_composition_e_acute() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // In compose mode, 'e' followed by combining acute (CCC=230)
+        // is not starter-to-starter, but let's test the compose path
+        // with a combining mark that composes.
+        state.feed_entry('e', 0, &mut out, true);
+        state.feed_entry('\u{0301}', 230, &mut out, true);
+        // Now flush to get the composed result
+        state.flush(&mut out, true);
+        assert_eq!(out, "\u{00E9}"); // e-acute
+    }
+
+    #[test]
+    fn feed_entry_nfd_starters_and_combining_marks() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // Feed starter
+        state.feed_entry_nfd('A', 0, &mut out);
+        assert_eq!(state.current_starter, Some('A'));
+        // Feed combining grave (CCC=230)
+        state.feed_entry_nfd('\u{0300}', 230, &mut out);
+        assert_eq!(state.ccc_buf.len(), 1);
+        // Feed new starter -- flushes A + combining grave
+        state.feed_entry_nfd('B', 0, &mut out);
+        assert_eq!(out, "A\u{0300}");
+        assert_eq!(state.current_starter, Some('B'));
+    }
+
+    // ===================================================================
+    // 3. NormState flush() and flush_nfd()
+    // ===================================================================
+
+    #[test]
+    fn flush_no_starter_no_marks_nothing_emitted() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.flush(&mut out, false);
+        assert!(out.is_empty());
+        state.flush(&mut out, true);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn flush_starter_only_emits_starter() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('X');
+        state.flush(&mut out, false);
+        assert_eq!(out, "X");
+    }
+
+    #[test]
+    fn flush_starter_one_combining_mark_no_compose() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('e');
+        state.ccc_buf.push('\u{0301}', 230); // combining acute
+        state.flush(&mut out, false);
+        assert_eq!(out, "e\u{0301}");
+    }
+
+    #[test]
+    fn flush_starter_one_combining_mark_with_compose() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('e');
+        state.ccc_buf.push('\u{0301}', 230); // combining acute
+        state.flush(&mut out, true);
+        assert_eq!(out, "\u{00E9}"); // e-acute composed
+    }
+
+    #[test]
+    fn flush_starter_multiple_ccc_disordered_marks_emits_sorted() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('a');
+        // Push marks in wrong CCC order: 230, 220, 202
+        state.ccc_buf.push('\u{0301}', 230); // combining acute, CCC=230
+        state.ccc_buf.push('\u{0323}', 220); // combining dot below, CCC=220
+        state.ccc_buf.push('\u{0327}', 202); // combining cedilla, CCC=202
+        state.flush(&mut out, false);
+        // Should emit starter + marks sorted by CCC: 202, 220, 230
+        let chars: Vec<char> = out.chars().collect();
+        assert_eq!(chars[0], 'a');
+        assert_eq!(chars[1], '\u{0327}'); // CCC=202
+        assert_eq!(chars[2], '\u{0323}'); // CCC=220
+        assert_eq!(chars[3], '\u{0301}'); // CCC=230
+    }
+
+    #[test]
+    fn flush_orphan_combining_marks_no_starter_emits_sorted() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        // No starter set, just orphan combining marks
+        state.ccc_buf.push('\u{0301}', 230); // CCC=230
+        state.ccc_buf.push('\u{0327}', 202); // CCC=202
+        state.flush(&mut out, false);
+        let chars: Vec<char> = out.chars().collect();
+        assert_eq!(chars.len(), 2);
+        assert_eq!(chars[0], '\u{0327}'); // CCC=202 first
+        assert_eq!(chars[1], '\u{0301}'); // CCC=230 second
+    }
+
+    #[test]
+    fn flush_nfd_no_starter_no_marks_nothing_emitted() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.flush_nfd(&mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn flush_nfd_starter_only_emits_starter() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('Z');
+        state.flush_nfd(&mut out);
+        assert_eq!(out, "Z");
+    }
+
+    #[test]
+    fn flush_nfd_single_mark_fast_path_take_single_inline() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('e');
+        state.ccc_buf.push('\u{0301}', 230); // single combining mark
+        // This should hit the take_single_inline fast path in flush_nfd
+        state.flush_nfd(&mut out);
+        assert_eq!(out, "e\u{0301}");
+        // Buffer should be cleared
+        assert!(state.ccc_buf.is_empty());
+    }
+
+    #[test]
+    fn flush_nfd_multiple_marks_sorted() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.current_starter = Some('o');
+        state.ccc_buf.push('\u{0301}', 230); // CCC=230
+        state.ccc_buf.push('\u{0327}', 202); // CCC=202
+        state.flush_nfd(&mut out);
+        let chars: Vec<char> = out.chars().collect();
+        assert_eq!(chars[0], 'o');
+        assert_eq!(chars[1], '\u{0327}'); // CCC=202
+        assert_eq!(chars[2], '\u{0301}'); // CCC=230
+    }
+
+    #[test]
+    fn flush_nfd_orphan_combining_marks_no_starter() {
+        let mut state = NormState::new();
+        let mut out = String::new();
+        state.ccc_buf.push('\u{0301}', 230);
+        state.ccc_buf.push('\u{0323}', 220);
+        state.flush_nfd(&mut out);
+        let chars: Vec<char> = out.chars().collect();
+        assert_eq!(chars.len(), 2);
+        assert_eq!(chars[0], '\u{0323}'); // CCC=220
+        assert_eq!(chars[1], '\u{0301}'); // CCC=230
+    }
+
+    // ===================================================================
+    // 4. normalize_impl() Cow::Borrowed path
+    // ===================================================================
+
+    #[test]
+    fn normalize_impl_nfc_already_normalized_returns_borrowed() {
+        // U+00C5 (A with ring) followed by U+0300 (combining grave).
+        // This is already in NFC -- the quick check should return Maybe
+        // (because U+0300 has NFC_QC=Maybe), but after normalization,
+        // the output equals input, so Cow::Borrowed is returned.
+        let input = "\u{00C5}\u{0300}";
+        let result = normalize_impl(input, Form::Nfc);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "Expected Cow::Borrowed for already-NFC input with Maybe QC, got Cow::Owned({:?})",
+            result
+        );
+        assert_eq!(&*result, input);
+    }
+
+    #[test]
+    fn normalize_impl_nfc_maybe_borrowed_simd_path() {
+        // Exercise the SIMD normalize_impl Maybe->Borrowed code path (line 720-721).
+        // Input must be >= 64 bytes and trigger QC=Maybe but produce identical output.
+        // 60 bytes of ASCII padding + "\u{00C5}\u{0300}" (already NFC, QC=Maybe).
+        let mut input = String::new();
+        input.push_str(&"a".repeat(60));
+        input.push_str("\u{00C5}\u{0300}"); // Å + combining grave, already NFC
+        assert!(input.len() >= 64, "input must be >= 64 bytes for SIMD path");
+        let result = normalize_impl(&input, Form::Nfc);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "Expected Cow::Borrowed for >=64 byte already-NFC input with Maybe QC, got Cow::Owned({:?})",
+            result
+        );
+        assert_eq!(&*result, &*input);
+    }
+
+    #[test]
+    fn normalize_impl_ascii_returns_borrowed() {
+        let input = "Hello, world!";
+        let result = normalize_impl(input, Form::Nfc);
+        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_eq!(&*result, input);
+    }
+
+    #[test]
+    fn normalize_impl_nfd_already_decomposed_returns_borrowed() {
+        // "e" + combining acute is already NFD
+        let input = "e\u{0301}";
+        let result = normalize_impl(input, Form::Nfd);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "Expected Cow::Borrowed for already-NFD input"
+        );
+    }
+
+    #[test]
+    fn normalize_impl_nfc_not_normalized_returns_owned() {
+        // NFD form of e-acute: "e" + combining acute -- not NFC
+        let input = "e\u{0301}";
+        let result = normalize_impl(input, Form::Nfc);
+        assert!(matches!(result, Cow::Owned(_)));
+        assert_eq!(&*result, "\u{00E9}");
+    }
+
+    // ===================================================================
+    // 5. is_cjk_unified() boundary tests
+    // ===================================================================
+
+    #[test]
+    fn cjk_unified_extension_a_start() {
+        assert!(is_cjk_unified(0x3400));
+    }
+
+    #[test]
+    fn cjk_unified_extension_a_end() {
+        assert!(is_cjk_unified(0x4DBF));
+    }
+
+    #[test]
+    fn cjk_unified_main_start() {
+        assert!(is_cjk_unified(0x4E00));
+    }
+
+    #[test]
+    fn cjk_unified_main_end() {
+        assert!(is_cjk_unified(0x9FFF));
+    }
+
+    #[test]
+    fn cjk_unified_just_before_extension_a() {
+        assert!(!is_cjk_unified(0x33FF));
+    }
+
+    #[test]
+    fn cjk_unified_gap_between_extension_a_and_main() {
+        assert!(!is_cjk_unified(0x4DC0));
+    }
+
+    #[test]
+    fn cjk_unified_just_after_main() {
+        assert!(!is_cjk_unified(0xA000));
+    }
+
+    // ===================================================================
+    // 6. is_supp_safe() boundary tests
+    // ===================================================================
+
+    #[test]
+    fn supp_safe_plane2_start() {
+        // 0x20000 is Plane 2 start, not in compat range -> true
+        assert!(is_supp_safe(0x20000));
+    }
+
+    #[test]
+    fn supp_safe_cjk_compat_supplement_start() {
+        assert!(!is_supp_safe(0x2F800));
+    }
+
+    #[test]
+    fn supp_safe_cjk_compat_supplement_end() {
+        assert!(!is_supp_safe(0x2FA1F));
+    }
+
+    #[test]
+    fn supp_safe_just_after_compat_supplement() {
+        assert!(is_supp_safe(0x2FA20));
+    }
+
+    #[test]
+    fn supp_safe_plane1_safe_range_start() {
+        assert!(is_supp_safe(0x1F252));
+    }
+
+    #[test]
+    fn supp_safe_plane1_safe_range_end() {
+        assert!(is_supp_safe(0x1FBEF));
+    }
+
+    #[test]
+    fn supp_safe_just_before_plane1_safe_range() {
+        assert!(!is_supp_safe(0x1F251));
+    }
+
+    #[test]
+    fn supp_safe_just_after_plane1_safe_range() {
+        assert!(!is_supp_safe(0x1FBF0));
+    }
+
+    #[test]
+    fn supp_safe_smp_start_before_safe_range() {
+        // 0x10000 is SMP start, before the safe range
+        assert!(!is_supp_safe(0x10000));
+    }
+}

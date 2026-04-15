@@ -98,6 +98,27 @@ impl CodePointTrie {
             None => self.default_value,
         }
     }
+
+    /// Fast supplementary lookup without bounds checks.
+    ///
+    /// # Safety
+    /// `cp` must be in U+10000..U+10FFFF, and the trie tables must be well-formed
+    /// (guaranteed for generated tables).
+    #[inline(always)]
+    pub(crate) unsafe fn get_supplementary_unchecked(&self, cp: u32) -> u32 {
+        debug_assert!((0x10000..=0x10FFFF).contains(&cp));
+        let adjusted = cp - 0x10000;
+
+        let i1 = (adjusted >> SUPP_SHIFT_1) as usize;
+        let l1_entry = unsafe { *self.supp_index1.get_unchecked(i1) } as usize;
+
+        let i2_offset = ((adjusted >> SUPP_SHIFT_2) & SUPP_MASK_2) as usize;
+        let l2_entry =
+            unsafe { *self.supp_index2.get_unchecked(l1_entry + i2_offset) } as usize;
+
+        let data_offset = (adjusted & SUPP_MASK_DATA) as usize;
+        unsafe { *self.data.get_unchecked(l2_entry + data_offset) }
+    }
 }
 
 #[cfg(test)]

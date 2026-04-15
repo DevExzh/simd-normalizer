@@ -2,7 +2,10 @@
 //! CCC, and quick-check data.
 
 pub(crate) mod ccc;
+pub(crate) mod ccc_qc;
+pub(crate) mod casefold;
 pub(crate) mod composition;
+pub(crate) mod confusable;
 pub(crate) mod decomposition;
 pub(crate) mod qc;
 pub(crate) mod trie;
@@ -29,6 +32,15 @@ const CCC_SHIFT: u32 = 16;
 const CCC_MASK: u32 = 0xFF << CCC_SHIFT;
 /// Mask for the 16-bit decomposition info field.
 const DECOMP_INFO_MASK: u32 = 0xFFFF;
+
+// ---------------------------------------------------------------------------
+// Expansion entry format: (ccc << 21) | code_point
+// ---------------------------------------------------------------------------
+
+/// Shift to extract CCC from a packed expansion entry.
+pub(crate) const EXPANSION_CCC_SHIFT: u32 = 21;
+/// Mask to extract code point from a packed expansion entry.
+pub(crate) const EXPANSION_CP_MASK: u32 = 0x1FFFFF;
 
 // ---------------------------------------------------------------------------
 // DecompResult
@@ -86,6 +98,7 @@ pub(crate) fn ccc_trie() -> CodePointTrie {
 }
 
 /// Build the NFC quick-check trie.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn nfc_qc_trie() -> CodePointTrie {
     CodePointTrie {
@@ -98,6 +111,7 @@ pub(crate) fn nfc_qc_trie() -> CodePointTrie {
 }
 
 /// Build the NFD quick-check trie.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn nfd_qc_trie() -> CodePointTrie {
     CodePointTrie {
@@ -110,6 +124,7 @@ pub(crate) fn nfd_qc_trie() -> CodePointTrie {
 }
 
 /// Build the NFKC quick-check trie.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn nfkc_qc_trie() -> CodePointTrie {
     CodePointTrie {
@@ -122,6 +137,7 @@ pub(crate) fn nfkc_qc_trie() -> CodePointTrie {
 }
 
 /// Build the NFKD quick-check trie.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn nfkd_qc_trie() -> CodePointTrie {
     CodePointTrie {
@@ -129,6 +145,20 @@ pub(crate) fn nfkd_qc_trie() -> CodePointTrie {
         data: qc::NFKD_QC_TRIE_DATA,
         supp_index1: qc::NFKD_QC_SUPP_INDEX1,
         supp_index2: qc::NFKD_QC_SUPP_INDEX2,
+        default_value: 0,
+    }
+}
+
+/// Build the fused CCC+QC trie.
+///
+/// Packed value: `(ccc << 8) | (nfkd_qc << 6) | (nfkc_qc << 4) | (nfd_qc << 2) | nfc_qc`
+#[inline]
+pub(crate) fn ccc_qc_trie() -> CodePointTrie {
+    CodePointTrie {
+        bmp_index: ccc_qc::CCC_QC_BMP_INDEX,
+        data: ccc_qc::CCC_QC_TRIE_DATA,
+        supp_index1: ccc_qc::CCC_QC_SUPP_INDEX1,
+        supp_index2: ccc_qc::CCC_QC_SUPP_INDEX2,
         default_value: 0,
     }
 }
@@ -143,12 +173,58 @@ pub(crate) fn ccc_from_trie_value(v: u32) -> u8 {
     ((v & CCC_MASK) >> CCC_SHIFT) as u8
 }
 
+/// Check if a trie value indicates the character has a decomposition mapping.
+#[inline(always)]
+pub(crate) fn has_decomposition(trie_value: u32) -> bool {
+    trie_value & HAS_DECOMPOSITION != 0
+}
+
+/// Look up the raw decomposition trie value for a character.
+#[inline]
+pub(crate) fn raw_decomp_trie_value(c: char, form: crate::decompose::DecompForm) -> u32 {
+    match form {
+        crate::decompose::DecompForm::Canonical => canonical_trie().get(c as u32),
+        crate::decompose::DecompForm::Compatible => compat_trie().get(c as u32),
+    }
+}
+
+/// Fast supplementary-plane decomposition trie lookup (no BMP check, no bounds checks).
+///
+/// # Safety
+/// `cp` must be a supplementary code point (U+10000..U+10FFFF).
+#[inline(always)]
+pub(crate) unsafe fn raw_decomp_trie_value_supplementary(
+    cp: u32,
+    form: crate::decompose::DecompForm,
+) -> u32 {
+    match form {
+        crate::decompose::DecompForm::Canonical => unsafe {
+            canonical_trie().get_supplementary_unchecked(cp)
+        },
+        crate::decompose::DecompForm::Compatible => unsafe {
+            compat_trie().get_supplementary_unchecked(cp)
+        },
+    }
+}
+
+/// Decode a decomposition trie value into (DecompResult, CCC).
+#[inline]
+pub(crate) fn decode_trie_value(trie_value: u32, form: crate::decompose::DecompForm) -> (DecompResult, u8) {
+    let ccc = ccc_from_trie_value(trie_value);
+    let expansion_table = match form {
+        crate::decompose::DecompForm::Canonical => decomposition::CANONICAL_EXPANSIONS,
+        crate::decompose::DecompForm::Compatible => decomposition::COMPAT_EXPANSIONS,
+    };
+    let decomp = decode_decomp(trie_value, expansion_table);
+    (decomp, ccc)
+}
+
 /// Decode decomposition from a trie value.
 ///
 /// For expansions, reads length from `expansion_table[offset]` and data
 /// follows at `offset + 1`.
 #[inline]
-pub(crate) fn decode_decomp(trie_value: u32, expansion_table: &[u16]) -> DecompResult {
+pub(crate) fn decode_decomp(trie_value: u32, expansion_table: &[u32]) -> DecompResult {
     if trie_value & HAS_DECOMPOSITION == 0 {
         return DecompResult::None;
     }
@@ -173,6 +249,7 @@ pub(crate) fn decode_decomp(trie_value: u32, expansion_table: &[u16]) -> DecompR
 /// Look up canonical decomposition for a character.
 ///
 /// Returns `(decomp_result, ccc)` -- both extracted from the same trie lookup.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn lookup_canonical_decomp(c: char) -> (DecompResult, u8) {
     let trie = canonical_trie();
@@ -185,6 +262,7 @@ pub(crate) fn lookup_canonical_decomp(c: char) -> (DecompResult, u8) {
 /// Look up compatibility decomposition for a character.
 ///
 /// Returns `(decomp_result, ccc)` -- both extracted from the same trie lookup.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn lookup_compat_decomp(c: char) -> (DecompResult, u8) {
     let trie = compat_trie();
@@ -233,27 +311,54 @@ pub(crate) fn compose_pair(a: char, b: char) -> Option<char> {
 // ---------------------------------------------------------------------------
 
 /// NFC quick-check: 0=Yes, 1=Maybe, 2=No.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn lookup_nfc_qc(c: char) -> u8 {
     nfc_qc_trie().get(c as u32) as u8
 }
 
 /// NFD quick-check: 0=Yes, 1=Maybe, 2=No.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn lookup_nfd_qc(c: char) -> u8 {
     nfd_qc_trie().get(c as u32) as u8
 }
 
 /// NFKC quick-check: 0=Yes, 1=Maybe, 2=No.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn lookup_nfkc_qc(c: char) -> u8 {
     nfkc_qc_trie().get(c as u32) as u8
 }
 
 /// NFKD quick-check: 0=Yes, 1=Maybe, 2=No.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn lookup_nfkd_qc(c: char) -> u8 {
     nfkd_qc_trie().get(c as u32) as u8
+}
+
+// ---------------------------------------------------------------------------
+// Fused CCC+QC lookup (single trie lookup for both CCC and QC)
+// ---------------------------------------------------------------------------
+
+/// Bit shifts to extract each form's 2-bit QC value from the packed CCC+QC trie.
+pub(crate) const CCC_QC_NFC_SHIFT: u32 = 0;
+pub(crate) const CCC_QC_NFD_SHIFT: u32 = 2;
+pub(crate) const CCC_QC_NFKC_SHIFT: u32 = 4;
+pub(crate) const CCC_QC_NFKD_SHIFT: u32 = 6;
+/// Shift to extract CCC from the packed CCC+QC trie value.
+pub(crate) const CCC_QC_CCC_SHIFT: u32 = 8;
+
+/// Look up fused CCC + QC value in a single trie lookup.
+///
+/// Returns `(ccc, qc)` where qc is 0=Yes, 1=Maybe, 2=No for the given form.
+#[inline]
+pub(crate) fn lookup_ccc_qc(c: char, qc_shift: u32) -> (u8, u8) {
+    let packed = ccc_qc_trie().get(c as u32);
+    let ccc = (packed >> CCC_QC_CCC_SHIFT) as u8;
+    let qc = ((packed >> qc_shift) & 0x3) as u8;
+    (ccc, qc)
 }
 
 // ---------------------------------------------------------------------------
@@ -262,14 +367,139 @@ pub(crate) fn lookup_nfkd_qc(c: char) -> u8 {
 
 /// Read expansion data from the canonical expansion table.
 #[inline]
-pub(crate) fn canonical_expansion_data(offset: usize, length: usize) -> &'static [u16] {
+pub(crate) fn canonical_expansion_data(offset: usize, length: usize) -> &'static [u32] {
     &decomposition::CANONICAL_EXPANSIONS[offset..offset + length]
 }
 
 /// Read expansion data from the compatibility expansion table.
 #[inline]
-pub(crate) fn compat_expansion_data(offset: usize, length: usize) -> &'static [u16] {
+pub(crate) fn compat_expansion_data(offset: usize, length: usize) -> &'static [u32] {
     &decomposition::COMPAT_EXPANSIONS[offset..offset + length]
+}
+
+/// Extract expansion data directly from a decomposition trie value.
+///
+/// Returns `Some(data_slice)` if the trie value encodes an expansion,
+/// `None` if it is a singleton or no-decomposition. This avoids constructing
+/// a `DecompResult` enum in the hot path.
+///
+/// The caller must have already verified `has_decomposition(trie_value)`.
+#[inline(always)]
+pub(crate) fn expansion_data_from_trie_value(
+    trie_value: u32,
+    form: crate::decompose::DecompForm,
+) -> Option<&'static [u32]> {
+    if trie_value & IS_EXPANSION == 0 {
+        return None;
+    }
+    let offset = (trie_value & DECOMP_INFO_MASK) as usize;
+    let table = match form {
+        crate::decompose::DecompForm::Canonical => decomposition::CANONICAL_EXPANSIONS,
+        crate::decompose::DecompForm::Compatible => decomposition::COMPAT_EXPANSIONS,
+    };
+    let length = table[offset] as usize;
+    Some(&table[offset + 1..offset + 1 + length])
+}
+
+// ---------------------------------------------------------------------------
+// Case folding lookups
+// ---------------------------------------------------------------------------
+
+/// Build the case folding trie from generated data.
+#[inline]
+pub(crate) fn casefold_trie() -> CodePointTrie {
+    CodePointTrie {
+        bmp_index: casefold::CASEFOLD_BMP_INDEX,
+        data: casefold::CASEFOLD_TRIE_DATA,
+        supp_index1: casefold::CASEFOLD_SUPP_INDEX1,
+        supp_index2: casefold::CASEFOLD_SUPP_INDEX2,
+        default_value: 0,
+    }
+}
+
+/// Look up simple case folding for a character.
+///
+/// Returns `Some(folded)` if the character has a case folding, `None` otherwise.
+#[inline]
+pub(crate) fn lookup_casefold(c: char) -> Option<char> {
+    let trie = casefold_trie();
+    let v = trie.get(c as u32);
+    if v == 0 {
+        None
+    } else {
+        // SAFETY: case folding trie contains only valid Unicode scalar values.
+        debug_assert!(v <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&v));
+        Some(unsafe { char::from_u32_unchecked(v) })
+    }
+}
+
+/// Turkish case folding exception table.
+#[inline]
+pub(crate) fn turkish_casefold(c: char) -> Option<char> {
+    let cp = c as u32;
+    for &(src, tgt) in casefold::TURKISH_FOLDS {
+        if src == cp {
+            // SAFETY: table contains only valid Unicode scalar values.
+            return Some(unsafe { char::from_u32_unchecked(tgt) });
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Confusable mapping lookups
+// ---------------------------------------------------------------------------
+
+/// Flag bit indicating an expansion in confusable mapping values.
+const CONFUSABLE_EXPANSION_FLAG: u32 = 0x80000000;
+
+/// Result of looking up a confusable mapping.
+pub(crate) enum ConfusableResult {
+    /// No mapping (character is not confusable).
+    None,
+    /// Single-character mapping.
+    Single(char),
+    /// Multi-character mapping: offset and length into the expansion table.
+    Expansion { offset: usize, length: usize },
+}
+
+/// Look up the confusable mapping for a character.
+///
+/// Uses branchless binary search over the sorted mapping table.
+#[inline]
+pub(crate) fn lookup_confusable(c: char) -> ConfusableResult {
+    let cp = c as u32;
+    let pairs = confusable::CONFUSABLE_MAPPINGS;
+    let mut len = pairs.len();
+    let mut base = 0usize;
+
+    // Branchless binary search.
+    while len > 1 {
+        let half = len / 2;
+        base += (pairs[base + half].0 <= cp) as usize * half;
+        len -= half;
+    }
+
+    if base < pairs.len() && pairs[base].0 == cp {
+        let value = pairs[base].1;
+        if value & CONFUSABLE_EXPANSION_FLAG != 0 {
+            let length = ((value >> 16) & 0xFF) as usize;
+            let offset = (value & 0xFFFF) as usize;
+            ConfusableResult::Expansion { offset, length }
+        } else {
+            // SAFETY: confusable table contains only valid Unicode scalar values.
+            debug_assert!(value <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&value));
+            ConfusableResult::Single(unsafe { char::from_u32_unchecked(value) })
+        }
+    } else {
+        ConfusableResult::None
+    }
+}
+
+/// Read expansion data from the confusable expansion table.
+#[inline]
+pub(crate) fn confusable_expansion_data(offset: usize, length: usize) -> &'static [u32] {
+    &confusable::CONFUSABLE_EXPANSIONS[offset..offset + length]
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +532,7 @@ mod tests {
     #[test]
     fn test_decode_decomp_none() {
         // HAS_DECOMPOSITION not set -> None
-        let dummy: [u16; 0] = [];
+        let dummy: [u32; 0] = [];
         assert_eq!(decode_decomp(0, &dummy), DecompResult::None);
         // Even with other bits set, if HAS_DECOMPOSITION is clear, it's None.
         assert_eq!(
@@ -315,7 +545,7 @@ mod tests {
     fn test_decode_decomp_singleton() {
         // HAS_DECOMPOSITION set, IS_EXPANSION not set -> Singleton
         let v = HAS_DECOMPOSITION | 0x0041; // 'A'
-        let dummy: [u16; 0] = [];
+        let dummy: [u32; 0] = [];
         assert_eq!(decode_decomp(v, &dummy), DecompResult::Singleton('A'));
     }
 
@@ -324,7 +554,7 @@ mod tests {
         // HAS_DECOMPOSITION | IS_EXPANSION, info = 3 (offset into expansion table)
         let v = HAS_DECOMPOSITION | IS_EXPANSION | 0x0003;
         // expansion_table[3] = 2 (length), followed by data at [4] and [5].
-        let expansion_table: [u16; 6] = [0, 0, 0, 2, 0x0041, 0x0042];
+        let expansion_table: [u32; 6] = [0, 0, 0, 2, 0x0000_0041, 0x0000_0042];
         assert_eq!(
             decode_decomp(v, &expansion_table),
             DecompResult::Expansion {
@@ -407,10 +637,12 @@ mod tests {
         match decomp {
             DecompResult::Expansion { offset, length } => {
                 let data = canonical_expansion_data(offset, length);
-                // Should be [0x0041, 0x0300]
+                // Should be 2 entries: A (CCC=0) and U+0300 (CCC=230)
                 assert_eq!(data.len(), 2);
-                assert_eq!(data[0], 0x0041); // 'A'
-                assert_eq!(data[1], 0x0300); // combining grave accent
+                assert_eq!(data[0] & EXPANSION_CP_MASK, 0x0041); // 'A'
+                assert_eq!(data[0] >> EXPANSION_CCC_SHIFT, 0); // CCC=0
+                assert_eq!(data[1] & EXPANSION_CP_MASK, 0x0300); // combining grave accent
+                assert_eq!(data[1] >> EXPANSION_CCC_SHIFT, 230); // CCC=230
             }
             DecompResult::Singleton(ch) => {
                 // Some generators produce singleton for single-char decomp.

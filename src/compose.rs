@@ -72,6 +72,7 @@ pub(crate) fn compose_combining_sequence(
 /// Uses a `u32` bitmask to track which combining entries were consumed by
 /// composition, supporting up to 32 combining marks without allocation.
 /// Sequences longer than 32 marks fall back to the allocating version.
+#[inline]
 pub(crate) fn compose_combining_sequence_into(
     starter: char,
     combining: &[CharAndCcc],

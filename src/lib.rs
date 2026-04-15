@@ -15,15 +15,21 @@ extern crate std;
 use alloc::borrow::Cow;
 
 mod ccc;
+pub mod casefold;
 mod compose;
+pub mod confusable;
 mod decompose;
 mod hangul;
+pub mod matching;
 pub mod normalizer;
 mod quick_check;
 pub(crate) mod simd;
 mod tables;
 mod utf8;
 
+pub use casefold::{CaseFoldMode, casefold, casefold_char};
+pub use confusable::{are_confusable, skeleton};
+pub use matching::{MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16};
 pub use normalizer::{NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer};
 pub use quick_check::IsNormalized;
 

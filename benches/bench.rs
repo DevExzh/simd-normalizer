@@ -1,9 +1,10 @@
-//! Criterion benchmarks for simd-normalizer vs unicode-normalization reference crate.
+//! Criterion benchmarks for simd-normalizer vs unicode-normalization, icu4x, and simdutf8.
 //!
 //! Covers NFC, NFD, NFKC, NFKD normalization and is_normalized checks across
 //! diverse Unicode input categories (~10 KB each).
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 
 // ---------------------------------------------------------------------------
 // Input generators (~10 KB each)
@@ -175,6 +176,13 @@ fn ref_nfkd(data: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Benchmark helpers -- ICU4X normalizers (created once, reused)
+// ---------------------------------------------------------------------------
+
+// ICU4X normalizers are borrowed statics, so we just call them inline
+// in each benchmark closure to avoid unnecessary String conversions.
+
+// ---------------------------------------------------------------------------
 // Input catalogue
 // ---------------------------------------------------------------------------
 
@@ -254,6 +262,17 @@ fn bench_nfc(c: &mut Criterion) {
                 });
             },
         );
+
+        group.bench_with_input(
+            BenchmarkId::new("icu4x", input.name),
+            &input.data,
+            |b, data| {
+                let nfc = ComposingNormalizerBorrowed::new_nfc();
+                b.iter(|| {
+                    black_box(nfc.normalize(black_box(data)));
+                });
+            },
+        );
     }
 
     group.finish();
@@ -286,6 +305,17 @@ fn bench_nfd(c: &mut Criterion) {
             |b, data| {
                 b.iter(|| {
                     black_box(ref_nfd(black_box(data)));
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("icu4x", input.name),
+            &input.data,
+            |b, data| {
+                let nfd = DecomposingNormalizerBorrowed::new_nfd();
+                b.iter(|| {
+                    black_box(nfd.normalize(black_box(data)));
                 });
             },
         );
@@ -324,6 +354,17 @@ fn bench_nfkc(c: &mut Criterion) {
                 });
             },
         );
+
+        group.bench_with_input(
+            BenchmarkId::new("icu4x", input.name),
+            &input.data,
+            |b, data| {
+                let nfkc = ComposingNormalizerBorrowed::new_nfkc();
+                b.iter(|| {
+                    black_box(nfkc.normalize(black_box(data)));
+                });
+            },
+        );
     }
 
     group.finish();
@@ -356,6 +397,17 @@ fn bench_nfkd(c: &mut Criterion) {
             |b, data| {
                 b.iter(|| {
                     black_box(ref_nfkd(black_box(data)));
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("icu4x", input.name),
+            &input.data,
+            |b, data| {
+                let nfkd = DecomposingNormalizerBorrowed::new_nfkd();
+                b.iter(|| {
+                    black_box(nfkd.normalize(black_box(data)));
                 });
             },
         );
@@ -396,6 +448,17 @@ fn bench_is_normalized(c: &mut Criterion) {
             },
         );
 
+        group.bench_with_input(
+            BenchmarkId::new("icu4x/is_nfc", input.name),
+            &input.data,
+            |b, data| {
+                let nfc = ComposingNormalizerBorrowed::new_nfc();
+                b.iter(|| {
+                    black_box(nfc.is_normalized(black_box(data)));
+                });
+            },
+        );
+
         // --- is_nfd ---
         group.bench_with_input(
             BenchmarkId::new("simd_normalizer/is_nfd", input.name),
@@ -413,6 +476,17 @@ fn bench_is_normalized(c: &mut Criterion) {
             |b, data| {
                 b.iter(|| {
                     black_box(unicode_normalization::is_nfd(black_box(data)));
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("icu4x/is_nfd", input.name),
+            &input.data,
+            |b, data| {
+                let nfd = DecomposingNormalizerBorrowed::new_nfd();
+                b.iter(|| {
+                    black_box(nfd.is_normalized(black_box(data)));
                 });
             },
         );
@@ -438,6 +512,17 @@ fn bench_is_normalized(c: &mut Criterion) {
             },
         );
 
+        group.bench_with_input(
+            BenchmarkId::new("icu4x/is_nfkc", input.name),
+            &input.data,
+            |b, data| {
+                let nfkc = ComposingNormalizerBorrowed::new_nfkc();
+                b.iter(|| {
+                    black_box(nfkc.is_normalized(black_box(data)));
+                });
+            },
+        );
+
         // --- is_nfkd ---
         group.bench_with_input(
             BenchmarkId::new("simd_normalizer/is_nfkd", input.name),
@@ -455,6 +540,17 @@ fn bench_is_normalized(c: &mut Criterion) {
             |b, data| {
                 b.iter(|| {
                     black_box(unicode_normalization::is_nfkd(black_box(data)));
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("icu4x/is_nfkd", input.name),
+            &input.data,
+            |b, data| {
+                let nfkd = DecomposingNormalizerBorrowed::new_nfkd();
+                b.iter(|| {
+                    black_box(nfkd.is_normalized(black_box(data)));
                 });
             },
         );
@@ -531,6 +627,167 @@ fn bench_normalize_to(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Case folding benchmarks
+// ---------------------------------------------------------------------------
+
+fn bench_casefold(c: &mut Criterion) {
+    let mut group = c.benchmark_group("casefold");
+    let inputs = all_inputs();
+
+    for input in &inputs {
+        group.throughput(Throughput::Bytes(input.data.len() as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("standard", input.name),
+            &input.data,
+            |b, data| {
+                b.iter(|| {
+                    black_box(simd_normalizer::casefold(
+                        black_box(data),
+                        simd_normalizer::CaseFoldMode::Standard,
+                    ));
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Confusable skeleton benchmarks
+// ---------------------------------------------------------------------------
+
+fn bench_confusable(c: &mut Criterion) {
+    let mut group = c.benchmark_group("confusable");
+    let inputs = all_inputs();
+
+    for input in &inputs {
+        group.throughput(Throughput::Bytes(input.data.len() as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("skeleton", input.name),
+            &input.data,
+            |b, data| {
+                b.iter(|| {
+                    black_box(simd_normalizer::skeleton(black_box(data)));
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Matching pipeline benchmarks (fused vs sequential)
+// ---------------------------------------------------------------------------
+
+fn bench_matching(c: &mut Criterion) {
+    let mut group = c.benchmark_group("matching");
+    let inputs = all_inputs();
+    let opts = simd_normalizer::matching::MatchingOptions::default();
+
+    for input in &inputs {
+        group.throughput(Throughput::Bytes(input.data.len() as u64));
+
+        // Fused pipeline
+        group.bench_with_input(
+            BenchmarkId::new("normalize_for_matching", input.name),
+            &input.data,
+            |b, data| {
+                b.iter(|| {
+                    black_box(simd_normalizer::matching::normalize_for_matching(
+                        black_box(data),
+                        &opts,
+                    ));
+                });
+            },
+        );
+
+        // Sequential: NFKC → casefold → skeleton (for comparison)
+        group.bench_with_input(
+            BenchmarkId::new("sequential_nfkc_fold_skel", input.name),
+            &input.data,
+            |b, data| {
+                b.iter(|| {
+                    let nfkc = simd_normalizer::nfkc().normalize(black_box(data));
+                    let folded = simd_normalizer::casefold(
+                        &nfkc,
+                        simd_normalizer::CaseFoldMode::Standard,
+                    );
+                    black_box(simd_normalizer::skeleton(&folded));
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// UTF-8 validation benchmarks (simdutf8 vs std)
+// ---------------------------------------------------------------------------
+
+fn bench_utf8_validation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("utf8_validation");
+    let inputs = all_inputs();
+
+    for input in &inputs {
+        group.throughput(Throughput::Bytes(input.data.len() as u64));
+
+        // simdutf8 basic (fastest, no error details)
+        group.bench_with_input(
+            BenchmarkId::new("simdutf8_basic", input.name),
+            &input.data,
+            |b, data| {
+                let bytes = data.as_bytes();
+                b.iter(|| {
+                    let _ = black_box(simdutf8::basic::from_utf8(black_box(bytes)));
+                });
+            },
+        );
+
+        // simdutf8 compat (API-compatible with std, with error details)
+        group.bench_with_input(
+            BenchmarkId::new("simdutf8_compat", input.name),
+            &input.data,
+            |b, data| {
+                let bytes = data.as_bytes();
+                b.iter(|| {
+                    let _ = black_box(simdutf8::compat::from_utf8(black_box(bytes)));
+                });
+            },
+        );
+
+        // std::str::from_utf8 (baseline)
+        group.bench_with_input(
+            BenchmarkId::new("std_from_utf8", input.name),
+            &input.data,
+            |b, data| {
+                let bytes = data.as_bytes();
+                b.iter(|| {
+                    let _ = black_box(core::str::from_utf8(black_box(bytes)));
+                });
+            },
+        );
+
+        // simd_normalizer is_nfc as a scanning throughput reference
+        group.bench_with_input(
+            BenchmarkId::new("simd_normalizer_is_nfc", input.name),
+            &input.data,
+            |b, data| {
+                b.iter(|| {
+                    black_box(simd_normalizer::nfc().is_normalized(black_box(data)));
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Criterion harness
 // ---------------------------------------------------------------------------
 
@@ -542,5 +799,9 @@ criterion_group!(
     bench_nfkd,
     bench_is_normalized,
     bench_normalize_to,
+    bench_casefold,
+    bench_confusable,
+    bench_matching,
+    bench_utf8_validation,
 );
 criterion_main!(benches);

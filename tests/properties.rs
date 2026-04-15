@@ -6,6 +6,8 @@
 
 use proptest::prelude::*;
 use simd_normalizer::UnicodeNormalization;
+use simd_normalizer::{CaseFoldMode, casefold, skeleton};
+use simd_normalizer::matching::{MatchingOptions, normalize_for_matching};
 use std::borrow::Cow;
 
 // ---------------------------------------------------------------------------
@@ -383,6 +385,62 @@ proptest! {
         let nfc_of_nfd = nfd_s.nfc();
         let via_nfc = nfc_of_nfd.nfd();
         prop_assert_eq!(&*nfd_s, &*via_nfc, "Hangul NFD->NFC->NFD round-trip failed");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Case folding property tests (1000 cases)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1000))]
+
+    #[test]
+    fn casefold_idempotent(s in unicode_string_strategy()) {
+        let once = casefold(&s, CaseFoldMode::Standard);
+        let twice = casefold(&once, CaseFoldMode::Standard);
+        prop_assert_eq!(&*once, &*twice, "casefold not idempotent");
+    }
+
+    #[test]
+    fn casefold_turkish_idempotent(s in unicode_string_strategy()) {
+        let once = casefold(&s, CaseFoldMode::Turkish);
+        let twice = casefold(&once, CaseFoldMode::Turkish);
+        prop_assert_eq!(&*once, &*twice, "Turkish casefold not idempotent");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton property tests (500 cases -- skeleton is more expensive)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn skeleton_converges_in_two_passes(s in unicode_string_strategy()) {
+        // UTS #39 skeleton is not guaranteed to be idempotent in one pass,
+        // but applying it twice should reach a fixed point.
+        let once = skeleton(&s);
+        let twice = skeleton(&once);
+        let thrice = skeleton(&twice);
+        prop_assert_eq!(twice, thrice, "skeleton did not converge after two passes");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Matching pipeline property tests (500 cases)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn matching_idempotent(s in unicode_string_strategy()) {
+        let opts = MatchingOptions::default();
+        let once = normalize_for_matching(&s, &opts);
+        let twice = normalize_for_matching(&once, &opts);
+        prop_assert_eq!(once, twice, "normalize_for_matching not idempotent");
     }
 }
 

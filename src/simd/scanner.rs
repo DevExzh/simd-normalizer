@@ -31,7 +31,7 @@ macro_rules! impl_scanner {
         /// - `ptr` must point to at least 64 readable bytes.
         /// - The required CPU feature must be available.
         $(#[$feat])*
-        #[inline(never)]
+        #[inline]
         pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
             let bound_vec = unsafe { simd_splat(bound) };
 

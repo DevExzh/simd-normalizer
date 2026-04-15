@@ -10,9 +10,11 @@ use alloc::string::String;
 use crate::ccc::CccBuffer;
 use crate::compose;
 use crate::decompose::{self, DecompForm};
+use crate::hangul;
 use crate::quick_check;
 use crate::simd;
 use crate::simd::prefetch;
+use crate::tables;
 use crate::utf8;
 
 // ---------------------------------------------------------------------------
@@ -172,13 +174,87 @@ impl NormState {
             self.ccc_buf.push(ch, ccc);
         }
     }
+
+    /// NFD-specialized flush: no composition logic.
+    #[inline]
+    fn flush_nfd(&mut self, out: &mut String) {
+        let starter = match self.current_starter.take() {
+            Some(s) => s,
+            None => {
+                if !self.ccc_buf.is_empty() {
+                    self.ccc_buf.sort_in_place();
+                    for entry in self.ccc_buf.as_slice() {
+                        out.push(entry.ch);
+                    }
+                    self.ccc_buf.clear();
+                }
+                return;
+            }
+        };
+
+        // Fast path: single combining mark (most common for precomposed Latin).
+        // Skip sort (unnecessary for 1 element) and avoid as_slice/clear overhead.
+        if let Some(entry) = self.ccc_buf.take_single_inline() {
+            out.push(starter);
+            out.push(entry.ch);
+            return;
+        }
+
+        if self.ccc_buf.is_empty() {
+            out.push(starter);
+            return;
+        }
+
+        // Multiple marks: sort and emit.
+        self.ccc_buf.sort_in_place();
+        out.push(starter);
+        for entry in self.ccc_buf.as_slice() {
+            out.push(entry.ch);
+        }
+        self.ccc_buf.clear();
+    }
+
+    /// NFD-specialized feed_entry: no composition checks.
+    #[inline]
+    fn feed_entry_nfd(&mut self, ch: char, ccc: u8, out: &mut String) {
+        if ccc == 0 {
+            self.flush_nfd(out);
+            self.current_starter = Some(ch);
+        } else {
+            self.ccc_buf.push(ch, ccc);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // process_char -- decompose a char and feed entries to NormState
 // ---------------------------------------------------------------------------
 
+/// Check if a code point is a CJK Unified Ideograph (CCC=0, no decomposition,
+/// no composition). These can bypass the entire decompose pipeline.
+#[inline(always)]
+fn is_cjk_unified(cp: u32) -> bool {
+    (0x4E00..=0x9FFF).contains(&cp) || (0x3400..=0x4DBF).contains(&cp)
+}
+
+/// Check if a supplementary code point (cp >= 0x10000) is safe (CCC=0, no
+/// decomposition in any normalization form). Covers the vast majority of
+/// supplementary characters; only narrow exception ranges need trie lookups.
+#[inline(always)]
+fn is_supp_safe(cp: u32) -> bool {
+    if cp >= 0x20000 {
+        // Plane 2+: safe except CJK Compatibility Ideographs Supplement
+        return !(0x2F800..=0x2FA1F).contains(&cp);
+    }
+    // Plane 1: core emoji and symbols block (U+1F252-U+1FBEF) is safe.
+    // Verified: no decompositions and CCC=0 for all normalization forms.
+    (0x1F252..=0x1FBEF).contains(&cp)
+}
+
 /// Decompose a character and feed each resulting entry into the accumulation state.
+///
+/// Uses a single trie lookup with passthrough fast-paths for non-decomposing
+/// characters, avoiding the full decomposition pipeline for the common case.
 #[inline]
 fn process_char(
     ch: char,
@@ -187,13 +263,142 @@ fn process_char(
     form: Form,
     decomp_buf: &mut CccBuffer,
 ) {
-    decomp_buf.clear();
-    decompose::decompose(ch, decomp_buf, form.decomp_form());
+    let cp = ch as u32;
 
-    // Walk the decomposed entries directly from the buffer slice.
+    // Fast path: CJK ideographs never decompose, have CCC=0, and never
+    // participate in canonical composition. No trie lookup needed.
+    if cp >= 0x3400 && is_cjk_unified(cp) {
+        state.flush(out, form.composes());
+        state.current_starter = Some(ch);
+        return;
+    }
+
+    // Hangul syllables: algorithmic decomposition, no trie lookup needed.
+    if hangul::is_hangul_syllable(ch) {
+        let (l, v, t) = hangul::decompose_hangul(ch);
+        state.feed_entry(l, 0, out, form.composes());
+        state.feed_entry(v, 0, out, form.composes());
+        if let Some(t_char) = t {
+            state.feed_entry(t_char, 0, out, form.composes());
+        }
+        return;
+    }
+
+    // Single trie lookup for both passthrough check and decomposition.
+    let trie_value = tables::raw_decomp_trie_value(ch, form.decomp_form());
+
+    // Non-decomposing character: extract CCC and feed directly.
+    // This covers both starters (CCC=0) and combining marks (CCC>0)
+    // that map to themselves, skipping the full decompose pipeline.
+    if !tables::has_decomposition(trie_value) {
+        let ccc = tables::ccc_from_trie_value(trie_value);
+        state.feed_entry(ch, ccc, out, form.composes());
+        return;
+    }
+
+    // Character has a decomposition: decode from the pre-looked-up trie value.
+    decomp_buf.clear();
+    decompose::decompose_from_trie_value(ch, trie_value, decomp_buf, form.decomp_form());
     for entry in decomp_buf.as_slice() {
         state.feed_entry(entry.ch, entry.ccc, out, form.composes());
     }
+}
+
+/// Process a non-CJK, non-Hangul character using a pre-computed trie value.
+///
+/// Used by the NFC/NFKC passthrough path in the SIMD loop to avoid a redundant
+/// trie lookup (the caller already looked up the trie value to decide whether
+/// the character is passthrough).
+#[allow(dead_code)]
+#[inline(always)]
+fn process_from_trie(
+    ch: char,
+    tv: u32,
+    state: &mut NormState,
+    out: &mut String,
+    form: Form,
+    decomp_buf: &mut CccBuffer,
+) {
+    if !tables::has_decomposition(tv) {
+        let ccc = tables::ccc_from_trie_value(tv);
+        state.feed_entry(ch, ccc, out, form.composes());
+    } else {
+        decomp_buf.clear();
+        decompose::decompose_from_trie_value(ch, tv, decomp_buf, form.decomp_form());
+        for entry in decomp_buf.as_slice() {
+            state.feed_entry(entry.ch, entry.ccc, out, form.composes());
+        }
+    }
+}
+
+/// Process a non-CJK, non-Hangul character for NFD/NFKD using a pre-computed
+/// trie value. Avoids `DecompResult` enum construction by inlining the expansion
+/// path and specializing the common 2-entry case (starter + single combining mark).
+#[inline(always)]
+fn process_from_trie_nfd(
+    ch: char,
+    tv: u32,
+    state: &mut NormState,
+    out: &mut String,
+    decomp_form: DecompForm,
+) {
+    if !tables::has_decomposition(tv) {
+        // Non-decomposing character (e.g. combining mark): extract CCC and feed.
+        let ccc = tables::ccc_from_trie_value(tv);
+        state.feed_entry_nfd(ch, ccc, out);
+        return;
+    }
+
+    // Fast path: expansion (the vast majority of decomposing BMP characters).
+    if let Some(data) = tables::expansion_data_from_trie_value(tv, decomp_form) {
+        // Specialize 2-entry expansion: starter + single combining mark.
+        // This is the most common case (precomposed Latin, Greek, Cyrillic, etc.)
+        // and avoids one feed_entry_nfd call per character.
+        if data.len() == 2 {
+            let e0 = data[0];
+            let ccc0 = (e0 >> tables::EXPANSION_CCC_SHIFT) as u8;
+            if ccc0 == 0 {
+                // First entry is a starter: flush previous state, set new starter.
+                state.flush_nfd(out);
+                let cp0 = e0 & tables::EXPANSION_CP_MASK;
+                debug_assert!(cp0 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp0));
+                state.current_starter = Some(unsafe { char::from_u32_unchecked(cp0) });
+                // Second entry: combine directly without feed_entry_nfd overhead.
+                let e1 = data[1];
+                let cp1 = e1 & tables::EXPANSION_CP_MASK;
+                let ccc1 = (e1 >> tables::EXPANSION_CCC_SHIFT) as u8;
+                debug_assert!(cp1 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp1));
+                let ch1 = unsafe { char::from_u32_unchecked(cp1) };
+                if ccc1 != 0 {
+                    state.ccc_buf.push(ch1, ccc1);
+                } else {
+                    // Both starters (rare): use general path for second entry.
+                    state.feed_entry_nfd(ch1, 0, out);
+                }
+                return;
+            }
+        }
+        // General expansion loop (3+ entries or first entry is non-starter).
+        for &entry in data {
+            let cp = entry & tables::EXPANSION_CP_MASK;
+            let ccc = (entry >> tables::EXPANSION_CCC_SHIFT) as u8;
+            debug_assert!(cp <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp));
+            let exp_ch = unsafe { char::from_u32_unchecked(cp) };
+            state.feed_entry_nfd(exp_ch, ccc, out);
+        }
+        return;
+    }
+
+    // Singleton decomposition: the trie value's lower 16 bits are the BMP code point.
+    let info = tv & 0xFFFF;
+    debug_assert!(info <= 0xD7FF || (0xE000..=0xFFFF).contains(&info));
+    let decomposed = unsafe { char::from_u32_unchecked(info) };
+    let ccc = if info <= 0x7F {
+        0
+    } else {
+        tables::lookup_ccc(decomposed)
+    };
+    state.feed_entry_nfd(decomposed, ccc, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,27 +451,16 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         return normalize_scalar(input, form);
     }
 
-    let bound = form.passthrough_bound();
-
-    // Quick-check fast path: if the first byte indicates non-passthrough
-    // content, check if the entire string is already normalized before
-    // entering the SIMD scan loop. This avoids the full normalize path for
-    // already-normalized non-ASCII text (precomposed, CJK, Hangul, etc.).
-    // Cost: 1 byte check + optional O(n) quick_check.
-    // The SIMD path remains optimal for ASCII-heavy inputs.
-    if bytes[0] >= bound
-        && form.quick_check(input) == quick_check::IsNormalized::Yes
-    {
+    // Single upfront quick-check. If definitely normalized, return early.
+    let qc = form.quick_check(input);
+    if qc == quick_check::IsNormalized::Yes {
         return Cow::Borrowed(input);
     }
 
+    // QC = No or Maybe: allocate and normalize.
+    let bound = form.passthrough_bound();
     let composes = form.composes();
-
-    // Track whether we have transitioned to Owned mode.
-    let mut owned: Option<String> = None;
-    // `last_written`: the byte offset up to which we have either:
-    //   - confirmed passthrough (Borrowed mode), or
-    //   - copied/processed into `owned` (Owned mode).
+    let mut out = String::with_capacity(form.estimated_capacity(len));
     let mut last_written: usize = 0;
     let mut state = NormState::new();
     let mut decomp_buf = CccBuffer::new();
@@ -293,21 +487,6 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             continue;
         }
 
-        // There are non-passthrough bytes in this chunk.
-        // If we haven't switched to Owned yet, check if the entire string
-        // is already normalized (avoids allocation for already-normalized text
-        // that contains non-passthrough bytes, e.g. precomposed characters).
-        if owned.is_none() {
-            if form.quick_check(input) == quick_check::IsNormalized::Yes {
-                return Cow::Borrowed(input);
-            }
-            let mut s = String::with_capacity(form.estimated_capacity(len));
-            // Copy all validated passthrough bytes up to chunk_start.
-            s.push_str(&input[last_written..chunk_start]);
-            owned = Some(s);
-            last_written = chunk_start;
-        }
-
         // Walk set bits in the mask.
         let mut chunk_mask = mask;
         while chunk_mask != 0 {
@@ -327,6 +506,68 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 continue;
             }
 
+            // Decode the character at this position.
+            let (ch, width) = utf8::decode_char_at(bytes, byte_pos);
+
+            // Extended passthrough for decomposition-only forms (NFD/NFKD):
+            // Non-decomposing starters (CCC=0) produce identical output, so
+            // they can be bulk-copied with surrounding passthrough bytes,
+            // avoiding per-character NormState flush + push overhead.
+            if !composes {
+                let cp = ch as u32;
+                // CJK ideographs: guaranteed non-decomposing starters, no trie needed.
+                if (cp >= 0x3400 && is_cjk_unified(cp))
+                    || (cp >= 0x10000 && is_supp_safe(cp))
+                {
+                    continue;
+                }
+                // Hangul syllables: algorithmic decomposition, write jamo directly
+                // to output bypassing per-entry NormState overhead.
+                if hangul::is_hangul_syllable(ch) {
+                    if byte_pos > last_written {
+                        state.flush_nfd(&mut out);
+                        out.push_str(&input[last_written..byte_pos]);
+                    }
+                    last_written = byte_pos + width;
+                    state.flush_nfd(&mut out);
+                    let (l, v, t) = hangul::decompose_hangul(ch);
+                    out.push(l);
+                    out.push(v);
+                    if let Some(t_char) = t {
+                        out.push(t_char);
+                    }
+                    continue;
+                }
+                // Non-CJK, non-Hangul: single trie lookup for both the
+                // passthrough check and (if needed) decomposition processing.
+                // Use unchecked supplementary path for cp >= 0x10000 (emoji etc).
+                let tv = if cp >= 0x10000 {
+                    // SAFETY: cp is a valid supplementary code point from a valid char.
+                    unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
+                } else {
+                    tables::raw_decomp_trie_value(ch, form.decomp_form())
+                };
+                if !tables::has_decomposition(tv)
+                    && tables::ccc_from_trie_value(tv) == 0
+                {
+                    continue; // non-decomposing starter → passthrough
+                }
+                // Needs work: copy passthrough, then process with inline NFD path.
+                if byte_pos > last_written {
+                    state.flush_nfd(&mut out);
+                    out.push_str(&input[last_written..byte_pos]);
+                }
+                last_written = byte_pos + width;
+                process_from_trie_nfd(
+                    ch,
+                    tv,
+                    &mut state,
+                    &mut out,
+                    form.decomp_form(),
+                );
+                continue;
+            }
+
             // Copy any passthrough bytes between last_written and this position.
             // Flush NormState first: it may hold a buffered starter that must
             // appear *before* the passthrough run in the output.
@@ -336,10 +577,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             // bytes are guaranteed to be ASCII (< 0xC0) and thus single-byte
             // starters with CCC 0.
             if byte_pos > last_written {
-                // SAFETY: `owned` is guaranteed to be `Some` after the
-                // `owned.is_none()` check above (line 266-272).
-                let out = unsafe { owned.as_mut().unwrap_unchecked() };
-                state.flush(out, composes);
+                state.flush(&mut out, composes);
                 let pass = &input[last_written..byte_pos];
                 let n = pass.len();
                 if composes {
@@ -347,22 +585,16 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                         out.push_str(&pass[..n - 1]);
                     }
                     let last_ch = pass.as_bytes()[n - 1] as char;
-                    state.feed_entry(last_ch, 0, out, true);
+                    state.feed_entry(last_ch, 0, &mut out, true);
                 } else {
                     out.push_str(pass);
                 }
             }
 
-            // Decode the character at this position.
-            let (ch, width) = utf8::decode_char_at(bytes, byte_pos);
             last_written = byte_pos + width;
 
             // Process through decomposition + accumulation.
-            // SAFETY: `owned` is guaranteed to be `Some` (see above).
-            {
-                let out = unsafe { owned.as_mut().unwrap_unchecked() };
-                process_char(ch, &mut state, out, form, &mut decomp_buf);
-            }
+            process_char(ch, &mut state, &mut out, form, &mut decomp_buf);
         }
 
         pos += 64;
@@ -374,16 +606,6 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         let tail_has_work = bytes[pos..].iter().any(|&b| b >= bound);
 
         if tail_has_work {
-            if owned.is_none() {
-                if form.quick_check(input) == quick_check::IsNormalized::Yes {
-                    return Cow::Borrowed(input);
-                }
-                let mut s = String::with_capacity(form.estimated_capacity(len));
-                s.push_str(&input[last_written..pos]);
-                owned = Some(s);
-                last_written = pos;
-            }
-
             // Process remaining bytes character-by-character.
             let mut tail_pos = pos;
             while tail_pos < len {
@@ -397,14 +619,68 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                     continue;
                 }
 
+                let (ch, width) = utf8::decode_char_at(bytes, tail_pos);
+
+                // Extended passthrough (NFD/NFKD): skip non-decomposing starters.
+                if !composes {
+                    let cp = ch as u32;
+                    if (cp >= 0x3400 && is_cjk_unified(cp))
+                        || (cp >= 0x10000 && is_supp_safe(cp))
+                    {
+                        tail_pos += width;
+                        continue;
+                    }
+                    // Hangul syllables: algorithmic decomposition, write directly.
+                    if hangul::is_hangul_syllable(ch) {
+                        if tail_pos > last_written {
+                            state.flush_nfd(&mut out);
+                            out.push_str(&input[last_written..tail_pos]);
+                        }
+                        last_written = tail_pos + width;
+                        state.flush_nfd(&mut out);
+                        let (l, v, t) = hangul::decompose_hangul(ch);
+                        out.push(l);
+                        out.push(v);
+                        if let Some(t_char) = t {
+                            out.push(t_char);
+                        }
+                        tail_pos += width;
+                        continue;
+                    }
+                    let tv = if cp >= 0x10000 {
+                        // SAFETY: cp is a valid supplementary code point from a valid char.
+                        unsafe {
+                            tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form())
+                        }
+                    } else {
+                        tables::raw_decomp_trie_value(ch, form.decomp_form())
+                    };
+                    if !tables::has_decomposition(tv)
+                        && tables::ccc_from_trie_value(tv) == 0
+                    {
+                        tail_pos += width;
+                        continue;
+                    }
+                    // Needs work: copy passthrough, process with inline NFD path.
+                    if tail_pos > last_written {
+                        state.flush_nfd(&mut out);
+                        out.push_str(&input[last_written..tail_pos]);
+                    }
+                    last_written = tail_pos + width;
+                    process_from_trie_nfd(
+                        ch,
+                        tv,
+                        &mut state,
+                        &mut out,
+                        form.decomp_form(),
+                    );
+                    tail_pos += width;
+                    continue;
+                }
+
                 // Copy passthrough bytes before this char.
-                // Flush NormState first to preserve correct ordering.
-                // In composition mode, keep the last passthrough char as starter.
                 if tail_pos > last_written {
-                    // SAFETY: `owned` is guaranteed to be `Some` after the
-                    // `owned.is_none()` check above (line 339-344).
-                    let out = unsafe { owned.as_mut().unwrap_unchecked() };
-                    state.flush(out, composes);
+                    state.flush(&mut out, composes);
                     let pass = &input[last_written..tail_pos];
                     let n = pass.len();
                     if composes {
@@ -412,44 +688,39 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                             out.push_str(&pass[..n - 1]);
                         }
                         let last_ch = pass.as_bytes()[n - 1] as char;
-                        state.feed_entry(last_ch, 0, out, true);
+                        state.feed_entry(last_ch, 0, &mut out, true);
                     } else {
                         out.push_str(pass);
                     }
                 }
 
-                let (ch, width) = utf8::decode_char_at(bytes, tail_pos);
                 last_written = tail_pos + width;
 
-                // SAFETY: `owned` is guaranteed to be `Some` (see above).
-                {
-                    let out = unsafe { owned.as_mut().unwrap_unchecked() };
-                    process_char(ch, &mut state, out, form, &mut decomp_buf);
-                }
+                process_char(ch, &mut state, &mut out, form, &mut decomp_buf);
 
                 tail_pos += width;
             }
         }
     }
 
-    // If we never switched to Owned mode, the input is already normalized.
-    match owned {
-        None => Cow::Borrowed(input),
-        Some(mut out) => {
-            // Flush any remaining state.
-            state.flush(&mut out, composes);
+    // Flush any remaining state.
+    if composes {
+        state.flush(&mut out, true);
+    } else {
+        state.flush_nfd(&mut out);
+    }
 
-            // Copy any trailing passthrough bytes.
-            if last_written < len {
-                out.push_str(&input[last_written..len]);
-            }
+    // Copy any trailing passthrough bytes.
+    if last_written < len {
+        out.push_str(&input[last_written..len]);
+    }
 
-            if out == input {
-                Cow::Borrowed(input)
-            } else {
-                Cow::Owned(out)
-            }
-        }
+    // For the Maybe case (NFC/NFKC only), normalization might not have changed
+    // anything. Check and return Borrowed if so.
+    if qc == quick_check::IsNormalized::Maybe && out == input {
+        Cow::Borrowed(input)
+    } else {
+        Cow::Owned(out)
     }
 }
 

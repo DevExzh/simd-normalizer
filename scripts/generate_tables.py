@@ -27,6 +27,12 @@ UCD_FILES = {
     "CompositionExclusions.txt": f"{UCD_BASE_URL}/CompositionExclusions.txt",
     "DerivedNormalizationProps.txt": f"{UCD_BASE_URL}/DerivedNormalizationProps.txt",
     "NormalizationTest.txt": f"{UCD_BASE_URL}/NormalizationTest.txt",
+    "CaseFolding.txt": f"{UCD_BASE_URL}/CaseFolding.txt",
+}
+
+SECURITY_BASE_URL = "https://www.unicode.org/Public/security/latest"
+SECURITY_FILES = {
+    "confusables.txt": f"{SECURITY_BASE_URL}/confusables.txt",
 }
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,6 +60,13 @@ S_COUNT = L_COUNT * N_COUNT
 def download_ucd_files():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     for filename, url in UCD_FILES.items():
+        dest = CACHE_DIR / filename
+        if dest.exists():
+            print(f"  [cached] {filename}")
+            continue
+        print(f"  [download] {filename} from {url}")
+        urllib.request.urlretrieve(url, dest)
+    for filename, url in SECURITY_FILES.items():
         dest = CACHE_DIR / filename
         if dest.exists():
             print(f"  [cached] {filename}")
@@ -391,20 +404,12 @@ def build_decomp_trie(full_decomp, ccc_map, qc_props, qc_name_nrt):
                 else:
                     offset = len(expansions)
                     expansion_index[decomp_tuple] = offset
-                    # Store length as prefix, then the code points
-                    exp_len = 0
-                    for dcp in decomp:
-                        exp_len += 1 if dcp <= 0xFFFF else 2
+                    # Store length as prefix, then packed (ccc << 21 | code_point) entries
+                    exp_len = len(decomp)
                     expansions.append(exp_len)
                     for dcp in decomp:
-                        if dcp <= 0xFFFF:
-                            expansions.append(dcp)
-                        else:
-                            dcp_adj = dcp - 0x10000
-                            high = 0xD800 + (dcp_adj >> 10)
-                            low = 0xDC00 + (dcp_adj & 0x3FF)
-                            expansions.append(high)
-                            expansions.append(low)
+                        dcp_ccc = ccc_map.get(dcp, 0)
+                        expansions.append((dcp_ccc << 21) | dcp)
                 if offset > 0xFFFF:
                     print(f"  WARNING: skipping U+{cp:04X}: expansion offset={offset} exceeds 16 bits")
                     continue
@@ -490,8 +495,8 @@ def write_decomposition_rs(canon_bmp_idx, canon_data, canon_s1, canon_s2,
     parts.append(format_u16_array("CANONICAL_SUPP_INDEX2", canon_s2,
                                   "Supplementary level-2 index for canonical decomposition."))
     parts.append("")
-    parts.append(format_u16_array("CANONICAL_EXPANSIONS", canon_expansions,
-                                  "Canonical expansion table (BMP multi-char decompositions)."))
+    parts.append(format_u32_array("CANONICAL_EXPANSIONS", canon_expansions,
+                                  "Canonical expansion table: each entry = (ccc << 21) | code_point."))
     parts.append("")
     parts.append(format_u16_array("COMPAT_BMP_INDEX", compat_bmp_idx,
                                   "BMP block index for compatibility decomposition trie."))
@@ -505,8 +510,8 @@ def write_decomposition_rs(canon_bmp_idx, canon_data, canon_s1, canon_s2,
     parts.append(format_u16_array("COMPAT_SUPP_INDEX2", compat_s2,
                                   "Supplementary level-2 index for compatibility decomposition."))
     parts.append("")
-    parts.append(format_u16_array("COMPAT_EXPANSIONS", compat_expansions,
-                                  "Compatibility expansion table."))
+    parts.append(format_u32_array("COMPAT_EXPANSIONS", compat_expansions,
+                                  "Compatibility expansion table: each entry = (ccc << 21) | code_point."))
     parts.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -565,7 +570,7 @@ def write_qc_rs(qc_props):
     path = OUTPUT_DIR / "qc.rs"
     qc_value_map = {"Y": 0, "M": 1, "N": 2}
     parts = [HEADER.format(version=UNICODE_VERSION)]
-    parts.append("/// Quick-check values: Y=0, M=1, N=2.")
+    parts.append("// Quick-check values: Y=0, M=1, N=2.")
     parts.append("")
     for prop_name in ["NFC_QC", "NFD_QC", "NFKC_QC", "NFKD_QC"]:
         entries = qc_props.get(prop_name, {})
@@ -594,7 +599,247 @@ def write_qc_rs(qc_props):
 
 
 # ---------------------------------------------------------------------------
-# Step 12: Parse and generate conformance test data
+# Step 11b: Fused CCC + QC trie generation
+# ---------------------------------------------------------------------------
+
+def write_ccc_qc_rs(ccc_map, qc_props):
+    """Generate a fused CCC+QC trie.
+
+    Packed u32 value per code point:
+        Bits [15..8]: CCC value (0-255)
+        Bits [7..6]:  NFKD_QC (0=Y, 1=M, 2=N)
+        Bits [5..4]:  NFKC_QC
+        Bits [3..2]:  NFD_QC
+        Bits [1..0]:  NFC_QC
+    """
+    path = OUTPUT_DIR / "ccc_qc.rs"
+    qc_value_map = {"Y": 0, "M": 1, "N": 2}
+
+    # Build the fused value for every code point that has non-zero CCC or non-Yes QC.
+    trie = TrieBuilder()
+    # Collect all code points that need entries.
+    all_cps = set(ccc_map.keys())
+    for prop_entries in qc_props.values():
+        all_cps.update(prop_entries.keys())
+
+    for cp in all_cps:
+        ccc = ccc_map.get(cp, 0)
+        nfc_qc = qc_value_map.get(qc_props.get("NFC_QC", {}).get(cp, "Y"), 0)
+        nfd_qc = qc_value_map.get(qc_props.get("NFD_QC", {}).get(cp, "Y"), 0)
+        nfkc_qc = qc_value_map.get(qc_props.get("NFKC_QC", {}).get(cp, "Y"), 0)
+        nfkd_qc = qc_value_map.get(qc_props.get("NFKD_QC", {}).get(cp, "Y"), 0)
+        packed = (ccc << 8) | (nfkd_qc << 6) | (nfkc_qc << 4) | (nfd_qc << 2) | nfc_qc
+        if packed != 0:
+            trie.set(cp, packed)
+
+    bmp_idx, data, s1, s2 = trie.build()
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+    parts.append("// Fused CCC + QC trie: (ccc << 8) | (nfkd_qc << 6) | (nfkc_qc << 4) | (nfd_qc << 2) | nfc_qc")
+    parts.append("// QC values: Y=0, M=1, N=2.")
+    parts.append("")
+    parts.append(format_u16_array("CCC_QC_BMP_INDEX", bmp_idx,
+                                  "BMP block index for fused CCC+QC trie."))
+    parts.append("")
+    parts.append(format_u32_array("CCC_QC_TRIE_DATA", data,
+                                  "Trie data for fused CCC + quick-check lookup."))
+    parts.append("")
+    parts.append(format_u16_array("CCC_QC_SUPP_INDEX1", s1,
+                                  "Supplementary level-1 index for fused CCC+QC trie."))
+    parts.append("")
+    parts.append(format_u16_array("CCC_QC_SUPP_INDEX2", s2,
+                                  "Supplementary level-2 index for fused CCC+QC trie."))
+    parts.append("")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+
+# ---------------------------------------------------------------------------
+# Step 12: Parse CaseFolding.txt and generate casefold trie
+# ---------------------------------------------------------------------------
+
+def parse_case_folding():
+    """Parse CaseFolding.txt.
+
+    Returns:
+        simple_folds: dict of cp -> target_cp for status C and S
+        turkish_folds: dict of cp -> target_cp for status T
+    """
+    path = CACHE_DIR / "CaseFolding.txt"
+    simple_folds = {}
+    turkish_folds = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "#" in line:
+                line = line[:line.index("#")].strip()
+            if not line:
+                continue
+            parts = line.split(";")
+            if len(parts) < 3:
+                continue
+            cp = int(parts[0].strip(), 16)
+            status = parts[1].strip()
+            mapping_str = parts[2].strip()
+            if status in ("C", "S"):
+                # Simple case folding: single code point mapping
+                target_cps = mapping_str.split()
+                if len(target_cps) == 1:
+                    simple_folds[cp] = int(target_cps[0], 16)
+            elif status == "T":
+                # Turkish-specific folding
+                target_cps = mapping_str.split()
+                if len(target_cps) == 1:
+                    turkish_folds[cp] = int(target_cps[0], 16)
+    return simple_folds, turkish_folds
+
+
+def write_casefold_rs(simple_folds, turkish_folds):
+    """Generate src/tables/casefold.rs with a case folding trie."""
+    path = OUTPUT_DIR / "casefold.rs"
+
+    # Build the trie: value = target code point, 0 = no folding
+    trie = TrieBuilder()
+    for cp, target in simple_folds.items():
+        trie.set(cp, target)
+    bmp_idx, data, s1, s2 = trie.build()
+
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+    parts.append(format_u16_array("CASEFOLD_BMP_INDEX", bmp_idx,
+                                  "BMP block index for case folding trie."))
+    parts.append("")
+    parts.append(format_u32_array("CASEFOLD_TRIE_DATA", data,
+                                  "Trie data for simple case folding (value = target code point, 0 = identity)."))
+    parts.append("")
+    parts.append(format_u16_array("CASEFOLD_SUPP_INDEX1", s1,
+                                  "Supplementary level-1 index for case folding trie."))
+    parts.append("")
+    parts.append(format_u16_array("CASEFOLD_SUPP_INDEX2", s2,
+                                  "Supplementary level-2 index for case folding trie."))
+    parts.append("")
+
+    # Turkish exception table: sorted array of (source, target) pairs
+    turkish_sorted = sorted(turkish_folds.items())
+    parts.append(f"/// Turkish case folding exceptions: (source, target) pairs.")
+    parts.append(f"/// {len(turkish_sorted)} entries, sorted by source code point.")
+    parts.append(f"pub(crate) static TURKISH_FOLDS: &[(u32, u32)] = &[")
+    for src, tgt in turkish_sorted:
+        parts.append(f"    (0x{src:04X}, 0x{tgt:04X}),")
+    parts.append("];")
+    parts.append("")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+
+
+# ---------------------------------------------------------------------------
+# Step 13: Parse confusables.txt and generate confusable tables
+# ---------------------------------------------------------------------------
+
+# Encoding for confusable mapping entries:
+# - Single-char: value = target code point (< 0x80000000)
+# - Multi-char: value = CONFUSABLE_EXPANSION_FLAG | (length << 16) | offset
+CONFUSABLE_EXPANSION_FLAG = 0x80000000
+
+
+def parse_confusables():
+    """Parse confusables.txt.
+
+    Returns dict of source_cp -> [target_cps].
+    """
+    path = CACHE_DIR / "confusables.txt"
+    mappings = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "#" in line:
+                line = line[:line.index("#")].strip()
+            if not line:
+                continue
+            parts = line.split(";")
+            if len(parts) < 3:
+                continue
+            source_str = parts[0].strip()
+            target_str = parts[1].strip()
+            # Parse source (single code point)
+            source_cp = int(source_str, 16)
+            # Parse target (one or more code points)
+            target_cps = [int(x, 16) for x in target_str.split()]
+            mappings[source_cp] = target_cps
+    return mappings
+
+
+def write_confusable_rs(mappings):
+    """Generate src/tables/confusable.rs with confusable mapping tables."""
+    path = OUTPUT_DIR / "confusable.rs"
+
+    # Separate single-char and multi-char mappings
+    single_mappings = []
+    multi_mappings = []
+    for source, targets in sorted(mappings.items()):
+        if len(targets) == 1:
+            single_mappings.append((source, targets[0]))
+        else:
+            multi_mappings.append((source, targets))
+
+    # Build expansion table for multi-char mappings
+    expansions = []
+    expansion_entries = []  # (source, packed_value)
+    for source, targets in multi_mappings:
+        offset = len(expansions)
+        length = len(targets)
+        for t in targets:
+            expansions.append(t)
+        packed = CONFUSABLE_EXPANSION_FLAG | (length << 16) | offset
+        expansion_entries.append((source, packed))
+
+    # Combine all entries into a single sorted array
+    all_entries = []
+    for source, target in single_mappings:
+        all_entries.append((source, target))
+    for source, packed in expansion_entries:
+        all_entries.append((source, packed))
+    all_entries.sort(key=lambda x: x[0])
+
+    parts = [HEADER.format(version=UNICODE_VERSION)]
+
+    # Main mapping table: sorted array of (source, value) pairs
+    parts.append(f"/// Confusable mapping table: (source_cp, mapping_value) pairs.")
+    parts.append(f"/// {len(all_entries)} entries, sorted by source code point.")
+    parts.append(f"/// If high bit of mapping_value is set, it is an expansion:")
+    parts.append(f"///   bits 16-23 = length, bits 0-15 = offset into CONFUSABLE_EXPANSIONS.")
+    parts.append(f"/// Otherwise, mapping_value is the target code point directly.")
+    parts.append(f"pub(crate) static CONFUSABLE_MAPPINGS: &[(u32, u32)] = &[")
+    for source, value in all_entries:
+        parts.append(f"    (0x{source:06X}, 0x{value:08X}),")
+    parts.append("];")
+    parts.append("")
+
+    # Expansion table
+    parts.append(f"/// Expansion data for multi-char confusable mappings.")
+    parts.append(f"/// {len(expansions)} code points total.")
+    parts.append(f"pub(crate) static CONFUSABLE_EXPANSIONS: &[u32] = &[")
+    for i in range(0, len(expansions), 8):
+        chunk = expansions[i:i + 8]
+        vals = ", ".join(f"0x{v:06X}" for v in chunk)
+        parts.append(f"    {vals},")
+    parts.append("];")
+    parts.append("")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+    print(f"  Wrote {path} ({path.stat().st_size} bytes)")
+    print(f"    Single-char mappings: {len(single_mappings)}")
+    print(f"    Multi-char mappings: {len(multi_mappings)}")
+    print(f"    Expansion table entries: {len(expansions)}")
+
+
+# ---------------------------------------------------------------------------
+# Step 14: Parse and generate conformance test data
 # ---------------------------------------------------------------------------
 
 def codepoints_to_rust_str(hex_cps):
@@ -725,11 +970,29 @@ def main():
     write_composition_rs(composition_pairs)
     write_ccc_rs(ccc_map)
     write_qc_rs(qc_props)
+    write_ccc_qc_rs(ccc_map, qc_props)
 
     print()
     print("Step 10: Generating conformance test data...")
     norm_tests = parse_normalization_test()
     write_normalization_tests_rs(norm_tests)
+
+    print()
+    print("Step 11: Parsing CaseFolding.txt...")
+    simple_folds, turkish_folds = parse_case_folding()
+    print(f"  Simple case folds (C+S): {len(simple_folds)}")
+    print(f"  Turkish exceptions (T): {len(turkish_folds)}")
+
+    print("Step 12: Generating case folding tables...")
+    write_casefold_rs(simple_folds, turkish_folds)
+
+    print()
+    print("Step 13: Parsing confusables.txt...")
+    confusable_mappings = parse_confusables()
+    print(f"  Confusable mappings: {len(confusable_mappings)}")
+
+    print("Step 14: Generating confusable tables...")
+    write_confusable_rs(confusable_mappings)
 
     print()
     print("=== Table generation complete ===")

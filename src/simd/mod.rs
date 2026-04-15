@@ -10,9 +10,8 @@
 //! - `aarch64::neon`
 //! - `wasm32::simd128`
 //!
-//! The dispatch layer (`scan_chunk` / `scan_and_prefetch`) selects the best
-//! backend:
-//! - x86_64 + std: runtime CPUID via self-replacing AtomicPtr trampoline
+//! The dispatch layer selects the best backend via a `SimdVTable` struct:
+//! - x86_64 + std: runtime CPUID via `OnceLock<&'static SimdVTable>`
 //! - x86_64 + no_std: compile-time via `cfg(target_feature)`
 //! - aarch64: always NEON (mandatory in AArch64 ISA)
 //! - wasm32: simd128 if compiled with the feature, else scalar
@@ -32,93 +31,87 @@ pub(crate) mod aarch64;
 pub(crate) mod wasm32;
 
 // ---------------------------------------------------------------------------
-// Function pointer types for dispatch
+// SimdVTable -- extensible dispatch table for all SIMD operations
 // ---------------------------------------------------------------------------
 
-/// Function pointer type for `scan_chunk(ptr, bound) -> mask`.
-#[allow(dead_code)]
-type ScanChunkFn = unsafe fn(*const u8, u8) -> u64;
+/// VTable holding all SIMD-dispatched function pointers.
+///
+/// A single `&'static SimdVTable` reference is resolved once (at runtime on
+/// x86_64+std, at compile time elsewhere) and reused for every subsequent call.
+/// Future fused pipeline operations (e.g. scan + case-fold) will be added here.
+pub(crate) struct SimdVTable {
+    pub scan_chunk: unsafe fn(*const u8, u8) -> u64,
+    pub scan_and_prefetch: unsafe fn(*const u8, *const u8, *const u8, u8) -> u64,
+}
 
-/// Function pointer type for `scan_and_prefetch(ptr, l1, l2, bound) -> mask`.
+// ---------------------------------------------------------------------------
+// Static VTable instances -- one per architecture level
+// ---------------------------------------------------------------------------
+
+static VTABLE_SCALAR: SimdVTable = SimdVTable {
+    scan_chunk: scalar::scan_chunk,
+    scan_and_prefetch: scalar::scan_and_prefetch,
+};
+
+#[cfg(target_arch = "x86_64")]
 #[allow(dead_code)]
-type ScanAndPrefetchFn = unsafe fn(*const u8, *const u8, *const u8, u8) -> u64;
+static VTABLE_SSE42: SimdVTable = SimdVTable {
+    scan_chunk: x86_64::sse42::scan_chunk,
+    scan_and_prefetch: x86_64::sse42::scan_and_prefetch,
+};
+
+#[cfg(target_arch = "x86_64")]
+#[allow(dead_code)]
+static VTABLE_AVX2: SimdVTable = SimdVTable {
+    scan_chunk: x86_64::avx2::scan_chunk,
+    scan_and_prefetch: x86_64::avx2::scan_and_prefetch,
+};
+
+#[cfg(target_arch = "x86_64")]
+#[allow(dead_code)]
+static VTABLE_AVX512: SimdVTable = SimdVTable {
+    scan_chunk: x86_64::avx512::scan_chunk,
+    scan_and_prefetch: x86_64::avx512::scan_and_prefetch,
+};
+
+#[cfg(target_arch = "aarch64")]
+static VTABLE_NEON: SimdVTable = SimdVTable {
+    scan_chunk: aarch64::neon::scan_chunk,
+    scan_and_prefetch: aarch64::neon::scan_and_prefetch,
+};
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+static VTABLE_SIMD128: SimdVTable = SimdVTable {
+    scan_chunk: wasm32::simd128::scan_chunk,
+    scan_and_prefetch: wasm32::simd128::scan_and_prefetch,
+};
 
 // ===========================================================================
-// x86_64 + std: runtime dispatch via AtomicPtr trampoline
+// x86_64 + std: runtime dispatch via OnceLock
 // ===========================================================================
 #[cfg(all(feature = "std", target_arch = "x86_64"))]
 mod dispatch {
-    use super::*;
-    use std::sync::atomic::{AtomicPtr, Ordering};
+    use super::SimdVTable;
+    use std::sync::OnceLock;
 
-    type FnRaw = *mut ();
+    static VTABLE: OnceLock<&'static SimdVTable> = OnceLock::new();
 
-    static SCAN_IMPL: AtomicPtr<()> = AtomicPtr::new(detect_scan as FnRaw);
-    #[allow(dead_code)]
-    static PREFETCH_IMPL: AtomicPtr<()> = AtomicPtr::new(detect_prefetch as FnRaw);
-
-    unsafe fn detect_scan(ptr: *const u8, bound: u8) -> u64 {
-        let f = pick_best_scan();
-        SCAN_IMPL.store(f as FnRaw, Ordering::Relaxed);
-        unsafe { f(ptr, bound) }
-    }
-
-    fn pick_best_scan() -> ScanChunkFn {
+    fn detect_best() -> &'static SimdVTable {
         if std::is_x86_feature_detected!("avx512bw") {
-            return super::x86_64::avx512::scan_chunk;
+            return &super::VTABLE_AVX512;
         }
         if std::is_x86_feature_detected!("avx2") {
-            return super::x86_64::avx2::scan_chunk;
+            return &super::VTABLE_AVX2;
         }
         if std::is_x86_feature_detected!("sse4.2") {
-            return super::x86_64::sse42::scan_chunk;
+            return &super::VTABLE_SSE42;
         }
-        super::scalar::scan_chunk
-    }
-
-    #[allow(dead_code)]
-    unsafe fn detect_prefetch(
-        ptr: *const u8,
-        prefetch_l1: *const u8,
-        prefetch_l2: *const u8,
-        bound: u8,
-    ) -> u64 {
-        let f = pick_best_prefetch();
-        PREFETCH_IMPL.store(f as FnRaw, Ordering::Relaxed);
-        unsafe { f(ptr, prefetch_l1, prefetch_l2, bound) }
-    }
-
-    #[allow(dead_code)]
-    fn pick_best_prefetch() -> ScanAndPrefetchFn {
-        if std::is_x86_feature_detected!("avx512bw") {
-            return super::x86_64::avx512::scan_and_prefetch;
-        }
-        if std::is_x86_feature_detected!("avx2") {
-            return super::x86_64::avx2::scan_and_prefetch;
-        }
-        if std::is_x86_feature_detected!("sse4.2") {
-            return super::x86_64::sse42::scan_and_prefetch;
-        }
-        super::scalar::scan_and_prefetch
+        &super::VTABLE_SCALAR
     }
 
     #[inline]
-    pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-        let f: ScanChunkFn = unsafe { core::mem::transmute(SCAN_IMPL.load(Ordering::Relaxed)) };
-        unsafe { f(ptr, bound) }
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    pub(crate) unsafe fn scan_and_prefetch(
-        ptr: *const u8,
-        prefetch_l1: *const u8,
-        prefetch_l2: *const u8,
-        bound: u8,
-    ) -> u64 {
-        let f: ScanAndPrefetchFn =
-            unsafe { core::mem::transmute(PREFETCH_IMPL.load(Ordering::Relaxed)) };
-        unsafe { f(ptr, prefetch_l1, prefetch_l2, bound) }
+    pub(crate) fn get_vtable() -> &'static SimdVTable {
+        VTABLE.get_or_init(detect_best)
     }
 }
 
@@ -127,53 +120,17 @@ mod dispatch {
 // ===========================================================================
 #[cfg(all(not(feature = "std"), target_arch = "x86_64"))]
 mod dispatch {
-    #[inline]
-    pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-        #[cfg(target_feature = "avx512bw")]
-        {
-            return unsafe { super::x86_64::avx512::scan_chunk(ptr, bound) };
-        }
-        #[cfg(all(target_feature = "avx2", not(target_feature = "avx512bw")))]
-        {
-            return unsafe { super::x86_64::avx2::scan_chunk(ptr, bound) };
-        }
-        #[cfg(all(
-            target_feature = "sse4.2",
-            not(target_feature = "avx2"),
-            not(target_feature = "avx512bw")
-        ))]
-        {
-            return unsafe { super::x86_64::sse42::scan_chunk(ptr, bound) };
-        }
-        #[cfg(not(any(
-            target_feature = "sse4.2",
-            target_feature = "avx2",
-            target_feature = "avx512bw"
-        )))]
-        {
-            unsafe { super::scalar::scan_chunk(ptr, bound) }
-        }
-    }
+    use super::SimdVTable;
 
-    #[allow(dead_code)]
     #[inline]
-    pub(crate) unsafe fn scan_and_prefetch(
-        ptr: *const u8,
-        prefetch_l1: *const u8,
-        prefetch_l2: *const u8,
-        bound: u8,
-    ) -> u64 {
+    pub(crate) fn get_vtable() -> &'static SimdVTable {
         #[cfg(target_feature = "avx512bw")]
         {
-            return unsafe {
-                super::x86_64::avx512::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-            };
+            return &super::VTABLE_AVX512;
         }
         #[cfg(all(target_feature = "avx2", not(target_feature = "avx512bw")))]
         {
-            return unsafe {
-                super::x86_64::avx2::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-            };
+            return &super::VTABLE_AVX2;
         }
         #[cfg(all(
             target_feature = "sse4.2",
@@ -181,9 +138,7 @@ mod dispatch {
             not(target_feature = "avx512bw")
         ))]
         {
-            return unsafe {
-                super::x86_64::sse42::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-            };
+            return &super::VTABLE_SSE42;
         }
         #[cfg(not(any(
             target_feature = "sse4.2",
@@ -191,7 +146,7 @@ mod dispatch {
             target_feature = "avx512bw"
         )))]
         {
-            unsafe { super::scalar::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
+            return &super::VTABLE_SCALAR;
         }
     }
 }
@@ -201,20 +156,11 @@ mod dispatch {
 // ===========================================================================
 #[cfg(target_arch = "aarch64")]
 mod dispatch {
-    #[inline]
-    pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-        unsafe { super::aarch64::neon::scan_chunk(ptr, bound) }
-    }
+    use super::SimdVTable;
 
-    #[allow(dead_code)]
     #[inline]
-    pub(crate) unsafe fn scan_and_prefetch(
-        ptr: *const u8,
-        prefetch_l1: *const u8,
-        prefetch_l2: *const u8,
-        bound: u8,
-    ) -> u64 {
-        unsafe { super::aarch64::neon::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
+    pub(crate) fn get_vtable() -> &'static SimdVTable {
+        &super::VTABLE_NEON
     }
 }
 
@@ -223,37 +169,17 @@ mod dispatch {
 // ===========================================================================
 #[cfg(target_arch = "wasm32")]
 mod dispatch {
-    #[inline]
-    pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-        #[cfg(target_feature = "simd128")]
-        {
-            return unsafe { super::wasm32::simd128::scan_chunk(ptr, bound) };
-        }
-        #[cfg(not(target_feature = "simd128"))]
-        {
-            return unsafe { super::scalar::scan_chunk(ptr, bound) };
-        }
-    }
+    use super::SimdVTable;
 
-    #[allow(dead_code)]
     #[inline]
-    pub(crate) unsafe fn scan_and_prefetch(
-        ptr: *const u8,
-        prefetch_l1: *const u8,
-        prefetch_l2: *const u8,
-        bound: u8,
-    ) -> u64 {
+    pub(crate) fn get_vtable() -> &'static SimdVTable {
         #[cfg(target_feature = "simd128")]
         {
-            return unsafe {
-                super::wasm32::simd128::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-            };
+            return &super::VTABLE_SIMD128;
         }
         #[cfg(not(target_feature = "simd128"))]
         {
-            return unsafe {
-                super::scalar::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound)
-            };
+            return &super::VTABLE_SCALAR;
         }
     }
 }
@@ -267,20 +193,11 @@ mod dispatch {
     target_arch = "wasm32",
 )))]
 mod dispatch {
-    #[inline]
-    pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-        unsafe { super::scalar::scan_chunk(ptr, bound) }
-    }
+    use super::SimdVTable;
 
-    #[allow(dead_code)]
     #[inline]
-    pub(crate) unsafe fn scan_and_prefetch(
-        ptr: *const u8,
-        prefetch_l1: *const u8,
-        prefetch_l2: *const u8,
-        bound: u8,
-    ) -> u64 {
-        unsafe { super::scalar::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
+    pub(crate) fn get_vtable() -> &'static SimdVTable {
+        &super::VTABLE_SCALAR
     }
 }
 
@@ -291,14 +208,15 @@ mod dispatch {
 /// Scan a 64-byte chunk, returning a bitmask of bytes >= `bound`.
 ///
 /// Dispatches to the best available SIMD backend for the current platform.
-/// On x86_64 with `std`, the first call triggers runtime CPUID detection;
-/// subsequent calls are near-zero overhead (one relaxed atomic load + indirect call).
+/// On x86_64 with `std`, the first call triggers runtime CPUID detection via
+/// `OnceLock`; subsequent calls are a single pointer dereference.
 ///
 /// # Safety
 /// - `ptr` must be valid for 64 bytes of read access.
 #[inline]
 pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-    unsafe { dispatch::scan_chunk(ptr, bound) }
+    let vt = dispatch::get_vtable();
+    unsafe { (vt.scan_chunk)(ptr, bound) }
 }
 
 /// Scan a 64-byte chunk and issue prefetch hints for upcoming data.
@@ -317,7 +235,8 @@ pub(crate) unsafe fn scan_and_prefetch(
     prefetch_l2: *const u8,
     bound: u8,
 ) -> u64 {
-    unsafe { dispatch::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
+    let vt = dispatch::get_vtable();
+    unsafe { (vt.scan_and_prefetch)(ptr, prefetch_l1, prefetch_l2, bound) }
 }
 
 /// Find the byte offset of the first byte >= `bound` in `bytes`.
@@ -401,5 +320,12 @@ mod tests {
         let s = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u{00E9}";
         let bytes = s.as_bytes();
         assert_eq!(find_first_above(bytes, 0xC0), 64);
+    }
+
+    #[test]
+    fn vtable_get_returns_consistent_reference() {
+        let vt1 = dispatch::get_vtable();
+        let vt2 = dispatch::get_vtable();
+        assert!(core::ptr::eq(vt1, vt2), "get_vtable() must return the same reference");
     }
 }

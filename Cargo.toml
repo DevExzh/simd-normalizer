@@ -16,6 +16,8 @@ alloc = []
 [dev-dependencies]
 proptest = "1"
 unicode-normalization = "0.1"
+icu_normalizer = "2.2"
+simdutf8 = { path = "3rdparty/simdutf8" }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]

@@ -16,7 +16,7 @@ pub(crate) struct CharAndCcc {
 }
 
 /// Inline capacity for the common case.
-const INLINE_CAP: usize = 4;
+const INLINE_CAP: usize = 18;
 
 /// Buffer for collecting combining characters before canonical ordering sort.
 ///
@@ -83,6 +83,7 @@ impl CccBuffer {
 
     /// Sort entries by CCC (stable sort) in place. Buffer remains populated
     /// and can be iterated via `as_slice()`.
+    #[inline]
     pub(crate) fn sort_in_place(&mut self) {
         if let Some(ref mut vec) = self.overflow {
             vec.sort_by_key(|e| e.ccc);
@@ -100,7 +101,22 @@ impl CccBuffer {
         self.len = 0;
     }
 
+    /// If the buffer has exactly one entry in inline storage, return it and
+    /// reset the buffer to empty. Returns `None` if empty, has multiple entries,
+    /// or has overflowed to heap. This is the fast path for the common case of
+    /// a single combining mark following a starter (e.g., precomposed Latin → base + accent).
+    #[inline(always)]
+    pub(crate) fn take_single_inline(&mut self) -> Option<CharAndCcc> {
+        if self.len == 1 && self.overflow.is_none() {
+            self.len = 0;
+            Some(self.inline[0])
+        } else {
+            None
+        }
+    }
+
     /// Access elements as a slice.
+    #[inline]
     pub(crate) fn as_slice(&self) -> &[CharAndCcc] {
         if let Some(ref vec) = self.overflow {
             &vec[..]
@@ -148,7 +164,8 @@ impl Iterator for SortedDrain<'_> {
 #[cfg(test)]
 impl ExactSizeIterator for SortedDrain<'_> {}
 
-/// Stable insertion sort by CCC. Optimal for small arrays (n <= ~8).
+/// Stable insertion sort by CCC. Optimal for small arrays (n <= ~18).
+#[inline]
 fn insertion_sort_by_ccc(slice: &mut [CharAndCcc]) {
     for i in 1..slice.len() {
         let key = slice[i];
@@ -162,6 +179,7 @@ fn insertion_sort_by_ccc(slice: &mut [CharAndCcc]) {
 }
 
 /// Look up the Canonical Combining Class for a character.
+#[allow(dead_code)]
 #[inline]
 pub(crate) fn canonical_combining_class(c: char) -> u8 {
     tables::lookup_ccc(c)
@@ -170,7 +188,6 @@ pub(crate) fn canonical_combining_class(c: char) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
     use alloc::vec::Vec;
 
     #[test]
@@ -225,33 +242,33 @@ mod tests {
     #[test]
     fn test_overflow_to_heap() {
         let mut buf = CccBuffer::new();
-        buf.push('a', 0);
-        buf.push('\u{0301}', 230);
-        buf.push('\u{0308}', 230);
-        buf.push('\u{0323}', 220);
-        buf.push('\u{0327}', 202); // 5th, triggers overflow
-        assert_eq!(buf.len(), 5);
+        // With INLINE_CAP=18, we need >18 entries to trigger overflow.
+        for i in 0..19 {
+            let ch = char::from_u32(0xE000 + i as u32).unwrap();
+            buf.push(ch, (200 + i) as u8);
+        }
+        assert_eq!(buf.len(), 19);
         assert!(buf.overflow.is_some());
         let sorted: Vec<CharAndCcc> = buf.sort_and_drain().collect();
-        assert_eq!(sorted.len(), 5);
-        assert_eq!(sorted[0].ccc, 0);
-        assert_eq!(sorted[1].ccc, 202);
-        assert_eq!(sorted[2].ccc, 220);
-        assert_eq!(sorted[3].ccc, 230);
-        assert_eq!(sorted[4].ccc, 230);
+        assert_eq!(sorted.len(), 19);
+        for window in sorted.windows(2) {
+            assert!(window[0].ccc <= window[1].ccc);
+        }
         assert!(buf.is_empty());
     }
 
     #[test]
     fn test_overflow_stability() {
         let mut buf = CccBuffer::new();
-        for ch in ['A', 'B', 'C', 'D', 'E', 'F'] {
+        // Push >18 entries to trigger overflow, all same CCC for stability check.
+        let chars: Vec<char> = (0..20).map(|i| char::from_u32(0xE000 + i).unwrap()).collect();
+        for &ch in &chars {
             buf.push(ch, 230);
         }
         assert!(buf.overflow.is_some());
         let sorted: Vec<CharAndCcc> = buf.sort_and_drain().collect();
-        let chars: Vec<char> = sorted.iter().map(|e| e.ch).collect();
-        assert_eq!(chars, vec!['A', 'B', 'C', 'D', 'E', 'F']);
+        let sorted_chars: Vec<char> = sorted.iter().map(|e| e.ch).collect();
+        assert_eq!(sorted_chars, chars);
     }
 
     #[test]

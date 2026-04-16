@@ -19,109 +19,102 @@ const TEXTS: &[(&str, &str)] = &[
     // ICU4X benchmark data (Carroll's Alice chapter 11 translations)
     (
         "arabic-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-ar.txt"),
+        include_str!("../test-data/Carroll-11-ar.txt"),
     ),
     (
         "german-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-de.txt"),
+        include_str!("../test-data/Carroll-11-de.txt"),
     ),
     (
         "greek-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-el.txt"),
+        include_str!("../test-data/Carroll-11-el.txt"),
     ),
     (
         "spanish-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-es.txt"),
+        include_str!("../test-data/Carroll-11-es.txt"),
     ),
     (
         "french-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-fr.txt"),
+        include_str!("../test-data/Carroll-11-fr.txt"),
     ),
     (
         "hebrew-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-he.txt"),
+        include_str!("../test-data/Carroll-11-he.txt"),
     ),
     (
         "polish-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-pl.txt"),
+        include_str!("../test-data/Carroll-11-pl.txt"),
     ),
     (
         "russian-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-ru.txt"),
+        include_str!("../test-data/Carroll-11-ru.txt"),
     ),
     (
         "thai-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-th.txt"),
+        include_str!("../test-data/Carroll-11-th.txt"),
     ),
     (
         "turkish-carroll",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/Carroll-11-tr.txt"),
+        include_str!("../test-data/Carroll-11-tr.txt"),
     ),
     // ICU4X benchmark data (name lists)
     (
         "japanese-hiragana",
-        include_str!(
-            "../3rdparty/icu4x/components/normalizer/benches/data/TestNames_Japanese_h.txt"
-        ),
+        include_str!("../test-data/TestNames_Japanese_h.txt"),
     ),
     (
         "japanese-katakana",
-        include_str!(
-            "../3rdparty/icu4x/components/normalizer/benches/data/TestNames_Japanese_k.txt"
-        ),
+        include_str!("../test-data/TestNames_Japanese_k.txt"),
     ),
     (
         "korean-names",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/TestNames_Korean.txt"),
+        include_str!("../test-data/TestNames_Korean.txt"),
     ),
     (
         "latin-names",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/TestNames_Latin.txt"),
+        include_str!("../test-data/TestNames_Latin.txt"),
     ),
     (
         "thai-names",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/TestNames_Thai.txt"),
+        include_str!("../test-data/TestNames_Thai.txt"),
     ),
-    (
-        "english-wotw",
-        include_str!("../3rdparty/icu4x/components/normalizer/benches/data/wotw.txt"),
-    ),
+    ("english-wotw", include_str!("../test-data/wotw.txt")),
     // simdutf8 benchmark data (lipsum texts)
     (
         "arabic-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Arabic-Lipsum.txt"),
+        include_str!("../test-data/Arabic-Lipsum.txt"),
     ),
     (
         "chinese-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Chinese-Lipsum.txt"),
+        include_str!("../test-data/Chinese-Lipsum.txt"),
     ),
     (
         "emoji-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Emoji-Lipsum.txt"),
+        include_str!("../test-data/Emoji-Lipsum.txt"),
     ),
     (
         "hebrew-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Hebrew-Lipsum.txt"),
+        include_str!("../test-data/Hebrew-Lipsum.txt"),
     ),
     (
         "hindi-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Hindi-Lipsum.txt"),
+        include_str!("../test-data/Hindi-Lipsum.txt"),
     ),
     (
         "japanese-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Japanese-Lipsum.txt"),
+        include_str!("../test-data/Japanese-Lipsum.txt"),
     ),
     (
         "korean-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Korean-Lipsum.txt"),
+        include_str!("../test-data/Korean-Lipsum.txt"),
     ),
     (
         "latin-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Latin-Lipsum.txt"),
+        include_str!("../test-data/Latin-Lipsum.txt"),
     ),
     (
         "russian-lipsum",
-        include_str!("../3rdparty/simdutf8/bench/data/Russian-Lipsum.txt"),
+        include_str!("../test-data/Russian-Lipsum.txt"),
     ),
 ];
 
@@ -258,6 +251,7 @@ fn first_divergence(a: &str, b: &str) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn idempotence() {
     let mut failures = Vec::new();
 
@@ -352,6 +346,7 @@ fn round_trip_nfd_nfc() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn is_normalized_consistency() {
     let mut failures = Vec::new();
 
@@ -402,6 +397,7 @@ fn is_normalized_consistency() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn differential_vs_icu_normalizer() {
     let mut failures = Vec::new();
 
@@ -458,6 +454,7 @@ fn differential_vs_icu_normalizer() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn differential_vs_unicode_normalization() {
     let mut failures = Vec::new();
 

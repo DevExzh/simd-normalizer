@@ -712,10 +712,8 @@ fn bench_matching(c: &mut Criterion) {
             |b, data| {
                 b.iter(|| {
                     let nfkc = simd_normalizer::nfkc().normalize(black_box(data));
-                    let folded = simd_normalizer::casefold(
-                        &nfkc,
-                        simd_normalizer::CaseFoldMode::Standard,
-                    );
+                    let folded =
+                        simd_normalizer::casefold(&nfkc, simd_normalizer::CaseFoldMode::Standard);
                     black_box(simd_normalizer::skeleton(&folded));
                 });
             },

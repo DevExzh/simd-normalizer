@@ -124,7 +124,7 @@ impl NormState {
                     self.ccc_buf.clear();
                 }
                 return;
-            }
+            },
         };
 
         if self.ccc_buf.is_empty() {
@@ -189,7 +189,7 @@ impl NormState {
                     self.ccc_buf.clear();
                 }
                 return;
-            }
+            },
         };
 
         // Fast path: single combining mark (most common for precomposed Latin).
@@ -476,8 +476,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         // Prefetch pointers use wrapping_add because they may exceed the
         // allocation; prefetch is a non-faulting hint on all architectures.
         let mask = unsafe {
-            let prefetch_l1 = ptr.wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
-            let prefetch_l2 = ptr.wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
+            let prefetch_l1 =
+                ptr.wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
+            let prefetch_l2 =
+                ptr.wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
             simd::scan_and_prefetch(ptr.add(pos), prefetch_l1, prefetch_l2, bound)
         };
 
@@ -516,9 +518,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             if !composes {
                 let cp = ch as u32;
                 // CJK ideographs: guaranteed non-decomposing starters, no trie needed.
-                if (cp >= 0x3400 && is_cjk_unified(cp))
-                    || (cp >= 0x10000 && is_supp_safe(cp))
-                {
+                if (cp >= 0x3400 && is_cjk_unified(cp)) || (cp >= 0x10000 && is_supp_safe(cp)) {
                     continue;
                 }
                 // Hangul syllables: algorithmic decomposition, write jamo directly
@@ -547,9 +547,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 } else {
                     tables::raw_decomp_trie_value(ch, form.decomp_form())
                 };
-                if !tables::has_decomposition(tv)
-                    && tables::ccc_from_trie_value(tv) == 0
-                {
+                if !tables::has_decomposition(tv) && tables::ccc_from_trie_value(tv) == 0 {
                     continue; // non-decomposing starter → passthrough
                 }
                 // Needs work: copy passthrough, then process with inline NFD path.
@@ -558,13 +556,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                     out.push_str(&input[last_written..byte_pos]);
                 }
                 last_written = byte_pos + width;
-                process_from_trie_nfd(
-                    ch,
-                    tv,
-                    &mut state,
-                    &mut out,
-                    form.decomp_form(),
-                );
+                process_from_trie_nfd(ch, tv, &mut state, &mut out, form.decomp_form());
                 continue;
             }
 
@@ -624,9 +616,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 // Extended passthrough (NFD/NFKD): skip non-decomposing starters.
                 if !composes {
                     let cp = ch as u32;
-                    if (cp >= 0x3400 && is_cjk_unified(cp))
-                        || (cp >= 0x10000 && is_supp_safe(cp))
-                    {
+                    if (cp >= 0x3400 && is_cjk_unified(cp)) || (cp >= 0x10000 && is_supp_safe(cp)) {
                         tail_pos += width;
                         continue;
                     }
@@ -655,9 +645,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                     } else {
                         tables::raw_decomp_trie_value(ch, form.decomp_form())
                     };
-                    if !tables::has_decomposition(tv)
-                        && tables::ccc_from_trie_value(tv) == 0
-                    {
+                    if !tables::has_decomposition(tv) && tables::ccc_from_trie_value(tv) == 0 {
                         tail_pos += width;
                         continue;
                     }
@@ -667,13 +655,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                         out.push_str(&input[last_written..tail_pos]);
                     }
                     last_written = tail_pos + width;
-                    process_from_trie_nfd(
-                        ch,
-                        tv,
-                        &mut state,
-                        &mut out,
-                        form.decomp_form(),
-                    );
+                    process_from_trie_nfd(ch, tv, &mut state, &mut out, form.decomp_form());
                     tail_pos += width;
                     continue;
                 }
@@ -959,8 +941,14 @@ mod tests {
         let ascii = "Hello, World!";
         assert_eq!(Form::Nfc.quick_check(ascii), quick_check::IsNormalized::Yes);
         assert_eq!(Form::Nfd.quick_check(ascii), quick_check::IsNormalized::Yes);
-        assert_eq!(Form::Nfkc.quick_check(ascii), quick_check::IsNormalized::Yes);
-        assert_eq!(Form::Nfkd.quick_check(ascii), quick_check::IsNormalized::Yes);
+        assert_eq!(
+            Form::Nfkc.quick_check(ascii),
+            quick_check::IsNormalized::Yes
+        );
+        assert_eq!(
+            Form::Nfkd.quick_check(ascii),
+            quick_check::IsNormalized::Yes
+        );
     }
 
     // ===================================================================

@@ -142,7 +142,8 @@ fn assert_triple(
     let un = un_fn(input);
 
     assert_eq!(
-        ours, icu,
+        ours,
+        icu,
         "\n{form} triple-check: simd != icu4x\
          \n  input code points: {input_cps}\
          \n  simd  code points: {ours_cps}\
@@ -156,7 +157,8 @@ fn assert_triple(
     );
 
     assert_eq!(
-        ours, un,
+        ours,
+        un,
         "\n{form} triple-check: simd != unicode-normalization\
          \n  input code points: {input_cps}\
          \n  simd  code points: {ours_cps}\
@@ -170,7 +172,8 @@ fn assert_triple(
     );
 
     assert_eq!(
-        icu, un,
+        icu,
+        un,
         "\n{form} triple-check: icu4x != unicode-normalization (reference disagreement!)\
          \n  input code points: {input_cps}\
          \n  icu4x code points: {icu_cps}\
@@ -445,6 +448,7 @@ proptest! {
 // ===========================================================================
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn hangul_edge_cases() {
     let cases: &[(&str, &str)] = &[
         // Single L Jamo
@@ -495,7 +499,8 @@ fn hangul_edge_cases() {
             let ours = our_fn(input);
             let reference = icu_fn(input);
             assert_eq!(
-                ours, reference,
+                ours,
+                reference,
                 "{form_name} Hangul edge case {label:?} failed\
                  \n  input code points: {input_cps}\
                  \n  ours  code points: {ours_cps}\
@@ -524,14 +529,16 @@ fn nfkd_long_expansion() {
     let ours = our_nfkd(fdfa);
     let icu = icu_nfkd(fdfa);
     assert_eq!(
-        ours, fdfa_expected,
+        ours,
+        fdfa_expected,
         "NFKD U+FDFA: ours does not match expected 18-char expansion\
          \n  ours: {}\n  expected: {}",
         codepoints(&ours),
         codepoints(fdfa_expected),
     );
     assert_eq!(
-        ours, icu,
+        ours,
+        icu,
         "NFKD U+FDFA: ours does not match icu4x\
          \n  ours: {}\n  icu:  {}",
         codepoints(&ours),
@@ -546,14 +553,16 @@ fn nfkd_long_expansion() {
     let ours = our_nfkd(note);
     let icu = icu_nfkd(note);
     assert_eq!(
-        ours, note_expected,
+        ours,
+        note_expected,
         "NFKD U+1D15E: ours does not match expected 2-char decomposition\
          \n  ours: {}\n  expected: {}",
         codepoints(&ours),
         codepoints(note_expected),
     );
     assert_eq!(
-        ours, icu,
+        ours,
+        icu,
         "NFKD U+1D15E: ours does not match icu4x\
          \n  ours: {}\n  icu:  {}",
         codepoints(&ours),
@@ -636,22 +645,10 @@ fn triple_reference_check() {
 
     for (label, input) in cases {
         // NFC triple check
-        assert_triple(
-            &format!("NFC({label})"),
-            input,
-            our_nfc,
-            icu_nfc,
-            un_nfc,
-        );
+        assert_triple(&format!("NFC({label})"), input, our_nfc, icu_nfc, un_nfc);
 
         // NFD triple check
-        assert_triple(
-            &format!("NFD({label})"),
-            input,
-            our_nfd,
-            icu_nfd,
-            un_nfd,
-        );
+        assert_triple(&format!("NFD({label})"), input, our_nfd, icu_nfd, un_nfd);
 
         // NFKC triple check
         assert_triple(

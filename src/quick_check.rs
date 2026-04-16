@@ -35,8 +35,7 @@ fn qc_value_to_result(v: u8) -> IsNormalized {
 #[inline(always)]
 fn is_cjk_unified(cp: u32) -> bool {
     // BMP: CJK Unified Ideographs + Extension A (most common)
-    (0x4E00..=0x9FFF).contains(&cp)
-        || (0x3400..=0x4DBF).contains(&cp)
+    (0x4E00..=0x9FFF).contains(&cp) || (0x3400..=0x4DBF).contains(&cp)
 }
 
 /// Check if a supplementary code point (cp >= 0x10000) is safe for all
@@ -164,7 +163,7 @@ fn quick_check_impl(
             match qc_value_to_result(qc) {
                 IsNormalized::No => return IsNormalized::No,
                 IsNormalized::Maybe => result = IsNormalized::Maybe,
-                IsNormalized::Yes => {}
+                IsNormalized::Yes => {},
             }
 
             last_ccc = ccc;
@@ -222,7 +221,7 @@ fn quick_check_impl(
         match qc_value_to_result(qc) {
             IsNormalized::No => return IsNormalized::No,
             IsNormalized::Maybe => result = IsNormalized::Maybe,
-            IsNormalized::Yes => {}
+            IsNormalized::Yes => {},
         }
         last_ccc = ccc;
         tail_pos += width;
@@ -273,7 +272,7 @@ fn quick_check_scalar(
         match qc_value_to_result(qc) {
             IsNormalized::No => return IsNormalized::No,
             IsNormalized::Maybe => result = IsNormalized::Maybe,
-            IsNormalized::Yes => {}
+            IsNormalized::Yes => {},
         }
 
         last_ccc = ccc;

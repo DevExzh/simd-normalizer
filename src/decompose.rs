@@ -116,17 +116,17 @@ pub(crate) fn decompose(c: char, output: &mut CccBuffer, form: DecompForm) {
             // decomposition trie for all characters (the table generator
             // stores it for both decomposing and non-decomposing code points).
             output.push(c, ccc);
-        }
+        },
         DecompResult::Singleton(decomposed) => {
             // The table stores fully-recursive decompositions, so the
             // singleton target is final — just look up its CCC.
             push_final_char(decomposed, output);
-        }
+        },
         DecompResult::Expansion { offset, length } => {
             // The table stores fully-recursive decompositions, so each
             // expansion character is final — just look up CCC, no recursion.
             decode_expansion(offset, length, form, output);
-        }
+        },
     }
 }
 
@@ -151,13 +151,13 @@ pub(crate) fn decompose_from_trie_value(
             // Shouldn't happen if caller checked has_decomposition, but handle
             // gracefully: treat as self-mapping with its CCC.
             output.push(c, _ccc);
-        }
+        },
         DecompResult::Singleton(decomposed) => {
             push_final_char(decomposed, output);
-        }
+        },
         DecompResult::Expansion { offset, length } => {
             decode_expansion(offset, length, form, output);
-        }
+        },
     }
 }
 

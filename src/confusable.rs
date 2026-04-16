@@ -26,7 +26,7 @@ fn confusable_map_char(c: char, out: &mut String) {
                 let ch = unsafe { char::from_u32_unchecked(cp) };
                 out.push(ch);
             }
-        }
+        },
     }
 }
 
@@ -82,7 +82,10 @@ mod tests {
     fn confusable_latin_cyrillic_a() {
         // Latin 'a' (U+0061) and Cyrillic 'а' (U+0430) should produce the
         // same skeleton.
-        assert!(are_confusable("a", "\u{0430}"), "Latin 'a' and Cyrillic 'а' should be confusable");
+        assert!(
+            are_confusable("a", "\u{0430}"),
+            "Latin 'a' and Cyrillic 'а' should be confusable"
+        );
     }
 
     #[test]

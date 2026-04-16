@@ -55,7 +55,7 @@ pub fn casefold<'a>(input: &'a str, mode: CaseFoldMode) -> Cow<'a, str> {
                 if folded != ch {
                     break idx;
                 }
-            }
+            },
         }
     };
 
@@ -97,35 +97,56 @@ mod tests {
     #[test]
     fn fold_latin_extended() {
         // U+00C0 À → U+00E0 à
-        assert_eq!(casefold_char('\u{00C0}', CaseFoldMode::Standard), '\u{00E0}');
+        assert_eq!(
+            casefold_char('\u{00C0}', CaseFoldMode::Standard),
+            '\u{00E0}'
+        );
         // U+00D6 Ö → U+00F6 ö
-        assert_eq!(casefold_char('\u{00D6}', CaseFoldMode::Standard), '\u{00F6}');
+        assert_eq!(
+            casefold_char('\u{00D6}', CaseFoldMode::Standard),
+            '\u{00F6}'
+        );
     }
 
     #[test]
     fn fold_greek() {
         // U+0391 Α → U+03B1 α
-        assert_eq!(casefold_char('\u{0391}', CaseFoldMode::Standard), '\u{03B1}');
+        assert_eq!(
+            casefold_char('\u{0391}', CaseFoldMode::Standard),
+            '\u{03B1}'
+        );
         // U+03A3 Σ → U+03C3 σ
-        assert_eq!(casefold_char('\u{03A3}', CaseFoldMode::Standard), '\u{03C3}');
+        assert_eq!(
+            casefold_char('\u{03A3}', CaseFoldMode::Standard),
+            '\u{03C3}'
+        );
     }
 
     #[test]
     fn fold_cyrillic() {
         // U+0410 А → U+0430 а
-        assert_eq!(casefold_char('\u{0410}', CaseFoldMode::Standard), '\u{0430}');
+        assert_eq!(
+            casefold_char('\u{0410}', CaseFoldMode::Standard),
+            '\u{0430}'
+        );
     }
 
     #[test]
     fn fold_micro_sign() {
         // U+00B5 µ (MICRO SIGN) → U+03BC μ (GREEK SMALL LETTER MU)
-        assert_eq!(casefold_char('\u{00B5}', CaseFoldMode::Standard), '\u{03BC}');
+        assert_eq!(
+            casefold_char('\u{00B5}', CaseFoldMode::Standard),
+            '\u{03BC}'
+        );
     }
 
     #[test]
     fn fold_sharp_s() {
         // U+1E9E ẞ (LATIN CAPITAL LETTER SHARP S) → U+00DF ß
-        assert_eq!(casefold_char('\u{1E9E}', CaseFoldMode::Standard), '\u{00DF}');
+        assert_eq!(
+            casefold_char('\u{1E9E}', CaseFoldMode::Standard),
+            '\u{00DF}'
+        );
     }
 
     // ---- Turkish mode ----
@@ -188,7 +209,10 @@ mod tests {
     #[test]
     fn fold_string_all_ascii_lowercase() {
         // Should return borrowed.
-        let result = casefold("abcdefghijklmnopqrstuvwxyz0123456789", CaseFoldMode::Standard);
+        let result = casefold(
+            "abcdefghijklmnopqrstuvwxyz0123456789",
+            CaseFoldMode::Standard,
+        );
         assert!(matches!(result, Cow::Borrowed(_)));
     }
 }

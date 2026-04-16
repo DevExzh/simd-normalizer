@@ -4,8 +4,8 @@
 //! port select ICU4X case-mapping tests, and validate confusable skeleton
 //! properties exhaustively.
 
-use simd_normalizer::{casefold, casefold_char, CaseFoldMode, skeleton, are_confusable};
 use simd_normalizer::UnicodeNormalization;
+use simd_normalizer::{CaseFoldMode, are_confusable, casefold, casefold_char, skeleton};
 
 // ===========================================================================
 // Case Folding — ICU4X ported tests
@@ -157,17 +157,17 @@ fn turkish_mode_only_differs_on_i_dotted_i() {
 fn string_fold_matches_char_by_char() {
     let test_strings = [
         "Hello World",
-        "CAFE\u{0301}",                              // CAFÉ with combining accent
-        "Stro\u{0308}me",                             // Ströme with combining diaeresis
+        "CAFE\u{0301}",   // CAFÉ with combining accent
+        "Stro\u{0308}me", // Ströme with combining diaeresis
         "Istanbul",
-        "\u{0391}\u{0392}\u{0393}\u{0394}",           // Greek uppercase
-        "\u{0410}\u{0411}\u{0412}\u{0413}",           // Cyrillic uppercase
-        "\u{10414}\u{10415}\u{10416}",                 // Deseret uppercase
-        "\u{01C4}\u{01C7}\u{01CA}",                   // Titlecase digraphs DZ, LJ, NJ
-        "\u{00B5}\u{1E9E}\u{017F}",                   // Micro sign, capital sharp S, long S
+        "\u{0391}\u{0392}\u{0393}\u{0394}", // Greek uppercase
+        "\u{0410}\u{0411}\u{0412}\u{0413}", // Cyrillic uppercase
+        "\u{10414}\u{10415}\u{10416}",      // Deseret uppercase
+        "\u{01C4}\u{01C7}\u{01CA}",         // Titlecase digraphs DZ, LJ, NJ
+        "\u{00B5}\u{1E9E}\u{017F}",         // Micro sign, capital sharp S, long S
         "The quick BROWN Fox",
-        "\u{0130}stanbul",                             // İstanbul
-        "\u{1D400}\u{1D401}\u{1D402}",                // Math bold A, B, C
+        "\u{0130}stanbul",             // İstanbul
+        "\u{1D400}\u{1D401}\u{1D402}", // Math bold A, B, C
         "",
         "already lowercase",
     ];
@@ -196,8 +196,8 @@ fn casefold_nfc_interaction() {
     // may differ in normalization form. We compare after NFC-normalizing both.
     let test_strings = [
         "Hello World",
-        "CAFE\u{0301}",           // decomposed E-acute sequence
-        "\u{00C9}cole",            // precomposed E-acute
+        "CAFE\u{0301}", // decomposed E-acute sequence
+        "\u{00C9}cole", // precomposed E-acute
         "\u{0391}\u{0392}\u{0393}",
         "\u{0410}\u{0411}\u{0412}",
         "abcdef",
@@ -215,7 +215,7 @@ fn casefold_nfc_interaction() {
         // Compare after NFC normalization of both results.
         let nfc_fold_original = fold_original.nfc();
         let nfc_fold_nfc = fold_nfc.nfc();
-        if &*nfc_fold_original != &*nfc_fold_nfc {
+        if *nfc_fold_original != *nfc_fold_nfc {
             failures.push(format!(
                 "Mismatch for {:?}: NFC(fold(s))={:?}, NFC(fold(NFC(s)))={:?}",
                 s, &*nfc_fold_original, &*nfc_fold_nfc
@@ -281,10 +281,7 @@ fn skeleton_convergence_exhaustive() {
             let s2 = skeleton(&s1);
             let s3 = skeleton(&s2);
             if s2 != s3 {
-                failures.push(format!(
-                    "U+{:04X}: skeleton^2 != skeleton^3",
-                    cp
-                ));
+                failures.push(format!("U+{:04X}: skeleton^2 != skeleton^3", cp));
             }
         }
     }
@@ -330,16 +327,16 @@ fn are_confusable_reflexivity() {
 fn are_confusable_symmetry() {
     // For known confusable pairs, are_confusable(a, b) == are_confusable(b, a).
     let pairs: &[(&str, &str)] = &[
-        ("a", "\u{0430}"),       // Latin a / Cyrillic а
-        ("e", "\u{0435}"),       // Latin e / Cyrillic е
-        ("o", "\u{043E}"),       // Latin o / Cyrillic о
-        ("p", "\u{0440}"),       // Latin p / Cyrillic р
-        ("o", "\u{03BF}"),       // Latin o / Greek ο
-        ("B", "\u{0392}"),       // Latin B / Greek Β
-        ("H", "\u{0397}"),       // Latin H / Greek Η
-        ("T", "\u{03A4}"),       // Latin T / Greek Τ
+        ("a", "\u{0430}"),                              // Latin a / Cyrillic а
+        ("e", "\u{0435}"),                              // Latin e / Cyrillic е
+        ("o", "\u{043E}"),                              // Latin o / Cyrillic о
+        ("p", "\u{0440}"),                              // Latin p / Cyrillic р
+        ("o", "\u{03BF}"),                              // Latin o / Greek ο
+        ("B", "\u{0392}"),                              // Latin B / Greek Β
+        ("H", "\u{0397}"),                              // Latin H / Greek Η
+        ("T", "\u{03A4}"),                              // Latin T / Greek Τ
         ("apple", "\u{0430}\u{0440}\u{0440}l\u{0435}"), // word-level
-        ("paypal", "p\u{0430}yp\u{0430}l"),              // mixed-script word
+        ("paypal", "p\u{0430}yp\u{0430}l"),             // mixed-script word
     ];
 
     let mut failures = Vec::new();
@@ -347,10 +344,7 @@ fn are_confusable_symmetry() {
         let ab = are_confusable(a, b);
         let ba = are_confusable(b, a);
         if ab != ba {
-            failures.push(format!(
-                "({:?}, {:?}): a,b={} but b,a={}",
-                a, b, ab, ba
-            ));
+            failures.push(format!("({:?}, {:?}): a,b={} but b,a={}", a, b, ab, ba));
         }
     }
     assert!(
@@ -396,7 +390,10 @@ fn known_confusable_pairs_expanded() {
     let mut failures = Vec::new();
     for &(a, b, desc) in confusable_pairs {
         if !are_confusable(a, b) {
-            failures.push(format!("{}: {:?} and {:?} should be confusable", desc, a, b));
+            failures.push(format!(
+                "{}: {:?} and {:?} should be confusable",
+                desc, a, b
+            ));
         }
     }
     assert!(

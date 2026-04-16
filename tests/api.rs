@@ -115,9 +115,9 @@ macro_rules! assert_normalize_to_matches {
             TEST_EMOJI_ZWJ,
             TEST_PRECOMPOSED,
             TEST_COMPAT_LIGATURE,
-            "",                  // empty string
-            "Z",                 // single ASCII
-            "\u{0300}",          // lone combining grave accent
+            "",         // empty string
+            "Z",        // single ASCII
+            "\u{0300}", // lone combining grave accent
         ];
         for &input in inputs {
             let norm = $constructor;
@@ -133,7 +133,10 @@ macro_rules! assert_normalize_to_matches {
             let is_borrowed = matches!(norm.normalize(input), Cow::Borrowed(_));
             assert_eq!(
                 was_normalized, is_borrowed,
-                concat!($label, ": normalize_to return value mismatch for input {:?}"),
+                concat!(
+                    $label,
+                    ": normalize_to return value mismatch for input {:?}"
+                ),
                 input
             );
         }
@@ -329,9 +332,15 @@ fn test_quick_check_empty_string_all_forms() {
 
 #[test]
 fn test_default_nfc() {
-    let default_norm = simd_normalizer::NfcNormalizer::default();
+    let default_norm = simd_normalizer::NfcNormalizer;
     let explicit_norm = simd_normalizer::nfc();
-    let inputs = [TEST_ASCII, TEST_COMBINING, TEST_PRECOMPOSED, TEST_HANGUL_JAMO, TEST_COMPAT_LIGATURE];
+    let inputs = [
+        TEST_ASCII,
+        TEST_COMBINING,
+        TEST_PRECOMPOSED,
+        TEST_HANGUL_JAMO,
+        TEST_COMPAT_LIGATURE,
+    ];
     for input in &inputs {
         assert_eq!(
             &*default_norm.normalize(input),
@@ -344,9 +353,15 @@ fn test_default_nfc() {
 
 #[test]
 fn test_default_nfd() {
-    let default_norm = simd_normalizer::NfdNormalizer::default();
+    let default_norm = simd_normalizer::NfdNormalizer;
     let explicit_norm = simd_normalizer::nfd();
-    let inputs = [TEST_ASCII, TEST_COMBINING, TEST_PRECOMPOSED, TEST_HANGUL_JAMO, TEST_COMPAT_LIGATURE];
+    let inputs = [
+        TEST_ASCII,
+        TEST_COMBINING,
+        TEST_PRECOMPOSED,
+        TEST_HANGUL_JAMO,
+        TEST_COMPAT_LIGATURE,
+    ];
     for input in &inputs {
         assert_eq!(
             &*default_norm.normalize(input),
@@ -359,9 +374,15 @@ fn test_default_nfd() {
 
 #[test]
 fn test_default_nfkc() {
-    let default_norm = simd_normalizer::NfkcNormalizer::default();
+    let default_norm = simd_normalizer::NfkcNormalizer;
     let explicit_norm = simd_normalizer::nfkc();
-    let inputs = [TEST_ASCII, TEST_COMBINING, TEST_PRECOMPOSED, TEST_HANGUL_JAMO, TEST_COMPAT_LIGATURE];
+    let inputs = [
+        TEST_ASCII,
+        TEST_COMBINING,
+        TEST_PRECOMPOSED,
+        TEST_HANGUL_JAMO,
+        TEST_COMPAT_LIGATURE,
+    ];
     for input in &inputs {
         assert_eq!(
             &*default_norm.normalize(input),
@@ -374,9 +395,15 @@ fn test_default_nfkc() {
 
 #[test]
 fn test_default_nfkd() {
-    let default_norm = simd_normalizer::NfkdNormalizer::default();
+    let default_norm = simd_normalizer::NfkdNormalizer;
     let explicit_norm = simd_normalizer::nfkd();
-    let inputs = [TEST_ASCII, TEST_COMBINING, TEST_PRECOMPOSED, TEST_HANGUL_JAMO, TEST_COMPAT_LIGATURE];
+    let inputs = [
+        TEST_ASCII,
+        TEST_COMBINING,
+        TEST_PRECOMPOSED,
+        TEST_HANGUL_JAMO,
+        TEST_COMPAT_LIGATURE,
+    ];
     for input in &inputs {
         assert_eq!(
             &*default_norm.normalize(input),
@@ -404,7 +431,7 @@ fn test_is_normalized_debug() {
 fn test_is_normalized_clone() {
     use simd_normalizer::IsNormalized;
     let original = IsNormalized::Maybe;
-    let cloned = original.clone();
+    let cloned = original;
     assert_eq!(original, cloned);
 }
 

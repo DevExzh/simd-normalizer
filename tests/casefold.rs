@@ -94,9 +94,15 @@ fn cyrillic_folding() {
 #[test]
 fn special_case_foldings() {
     // MICRO SIGN → GREEK SMALL LETTER MU
-    assert_eq!(casefold_char('\u{00B5}', CaseFoldMode::Standard), '\u{03BC}');
+    assert_eq!(
+        casefold_char('\u{00B5}', CaseFoldMode::Standard),
+        '\u{03BC}'
+    );
     // LATIN CAPITAL LETTER SHARP S → LATIN SMALL LETTER SHARP S
-    assert_eq!(casefold_char('\u{1E9E}', CaseFoldMode::Standard), '\u{00DF}');
+    assert_eq!(
+        casefold_char('\u{1E9E}', CaseFoldMode::Standard),
+        '\u{00DF}'
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +158,10 @@ fn string_empty_returns_borrowed() {
 
 #[test]
 fn string_mixed_case() {
-    assert_eq!(&*casefold("Hello World", CaseFoldMode::Standard), "hello world");
+    assert_eq!(
+        &*casefold("Hello World", CaseFoldMode::Standard),
+        "hello world"
+    );
     assert_eq!(&*casefold("HELLO", CaseFoldMode::Standard), "hello");
 }
 

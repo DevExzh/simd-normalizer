@@ -603,9 +603,24 @@ fn assert_matches_icu(form: &str, input: &str, ours: &str, reference: &str) {
         ilen = input.chars().count(),
         olen = ours.chars().count(),
         rlen = reference.chars().count(),
-        input_cps = input.chars().take(10).map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>().join(" "),
-        ours_cps = ours.chars().take(10).map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>().join(" "),
-        ref_cps = reference.chars().take(10).map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>().join(" "),
+        input_cps = input
+            .chars()
+            .take(10)
+            .map(|c| format!("U+{:04X}", c as u32))
+            .collect::<Vec<_>>()
+            .join(" "),
+        ours_cps = ours
+            .chars()
+            .take(10)
+            .map(|c| format!("U+{:04X}", c as u32))
+            .collect::<Vec<_>>()
+            .join(" "),
+        ref_cps = reference
+            .chars()
+            .take(10)
+            .map(|c| format!("U+{:04X}", c as u32))
+            .collect::<Vec<_>>()
+            .join(" "),
     );
 }
 
@@ -776,7 +791,10 @@ fn only_combining_marks_no_starter_nfc() {
     assert_matches_icu("NFC-no-starter", input, &our_result, &icu_result);
 
     // Must not panic, must produce non-empty output (the marks should pass through).
-    assert!(!our_result.is_empty(), "output should not be empty for combining-only input");
+    assert!(
+        !our_result.is_empty(),
+        "output should not be empty for combining-only input"
+    );
 }
 
 #[test]
@@ -820,8 +838,8 @@ fn only_combining_marks_longer_sequence() {
 
     let mut input = String::new();
     let marks: &[char] = &[
-        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}',
-        '\u{0327}', '\u{0328}', '\u{0323}', '\u{0330}', '\u{0345}',
+        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}', '\u{0327}', '\u{0328}',
+        '\u{0323}', '\u{0330}', '\u{0345}',
     ];
     for &m in marks {
         input.push(m);
@@ -829,11 +847,21 @@ fn only_combining_marks_longer_sequence() {
 
     let our_nfc_result = nfc.normalize(&input);
     let icu_nfc_result = icu_nfc(&input);
-    assert_matches_icu("NFC-no-starter-long", &input, &our_nfc_result, &icu_nfc_result);
+    assert_matches_icu(
+        "NFC-no-starter-long",
+        &input,
+        &our_nfc_result,
+        &icu_nfc_result,
+    );
 
     let our_nfd_result = nfd.normalize(&input);
     let icu_nfd_result = icu_nfd(&input);
-    assert_matches_icu("NFD-no-starter-long", &input, &our_nfd_result, &icu_nfd_result);
+    assert_matches_icu(
+        "NFD-no-starter-long",
+        &input,
+        &our_nfd_result,
+        &icu_nfd_result,
+    );
 }
 
 // --- Test 22e: 33 marks with mixed composable/non-composable ---
@@ -906,7 +934,12 @@ fn nfc_33_marks_mixed_composable_non_composable() {
     // NFC -- verify against ICU
     let our_nfc_result = nfc.normalize(&input);
     let icu_nfc_result = icu_nfc(&input);
-    assert_matches_icu("NFC-33marks-mixed", &input, &our_nfc_result, &icu_nfc_result);
+    assert_matches_icu(
+        "NFC-33marks-mixed",
+        &input,
+        &our_nfc_result,
+        &icu_nfc_result,
+    );
 
     // Verify that composition actually happened (the output should differ from
     // just stacking all marks on 'a').
@@ -930,7 +963,12 @@ fn nfc_33_marks_mixed_composable_non_composable() {
     // NFD -- verify against ICU
     let our_nfd_result = nfd.normalize(&input);
     let icu_nfd_result = icu_nfd(&input);
-    assert_matches_icu("NFD-33marks-mixed", &input, &our_nfd_result, &icu_nfd_result);
+    assert_matches_icu(
+        "NFD-33marks-mixed",
+        &input,
+        &our_nfd_result,
+        &icu_nfd_result,
+    );
 
     // NFD output should be CCC-sorted: verify marks are in non-decreasing CCC order.
     let nfd_chars: Vec<char> = our_nfd_result.chars().collect();
@@ -955,9 +993,8 @@ fn unicode_ccc_approximate(ch: char) -> u8 {
     match ch {
         '\u{0327}' | '\u{0328}' => 202,
         '\u{0323}' | '\u{0330}' | '\u{0331}' | '\u{0332}' => 220,
-        '\u{0300}' | '\u{0301}' | '\u{0302}' | '\u{0303}' | '\u{0304}'
-        | '\u{0306}' | '\u{0307}' | '\u{0308}' | '\u{0309}' | '\u{030A}'
-        | '\u{030B}' | '\u{030C}' => 230,
+        '\u{0300}' | '\u{0301}' | '\u{0302}' | '\u{0303}' | '\u{0304}' | '\u{0306}'
+        | '\u{0307}' | '\u{0308}' | '\u{0309}' | '\u{030A}' | '\u{030B}' | '\u{030C}' => 230,
         '\u{0345}' => 240,
         _ => 0, // assume starter / CCC=0
     }
@@ -972,8 +1009,8 @@ fn long_combining_roundtrip_idempotency() {
 
     // Build a 50-mark input (well into fallback territory).
     let mark_cycle: &[char] = &[
-        '\u{0327}', '\u{0323}', '\u{0300}', '\u{0345}',
-        '\u{0328}', '\u{0330}', '\u{0301}', '\u{0331}',
+        '\u{0327}', '\u{0323}', '\u{0300}', '\u{0345}', '\u{0328}', '\u{0330}', '\u{0301}',
+        '\u{0331}',
     ];
     let mut input = String::from("o");
     for i in 0..50 {
@@ -984,7 +1021,8 @@ fn long_combining_roundtrip_idempotency() {
     let nfc_once = nfc.normalize(&input).into_owned();
     let nfc_twice = nfc.normalize(&nfc_once).into_owned();
     assert_eq!(
-        nfc_once, nfc_twice,
+        nfc_once,
+        nfc_twice,
         "NFC is not idempotent for 50-mark input!\
          \n  NFC(x) cps: {}\
          \n  NFC(NFC(x)) cps: {}",
@@ -996,7 +1034,8 @@ fn long_combining_roundtrip_idempotency() {
     let nfd_once = nfd.normalize(&input).into_owned();
     let nfd_twice = nfd.normalize(&nfd_once).into_owned();
     assert_eq!(
-        nfd_once, nfd_twice,
+        nfd_once,
+        nfd_twice,
         "NFD is not idempotent for 50-mark input!\
          \n  NFD(x) cps: {}\
          \n  NFD(NFD(x)) cps: {}",
@@ -1007,7 +1046,8 @@ fn long_combining_roundtrip_idempotency() {
     // Roundtrip: NFC(NFD(x)) == NFC(x)
     let nfc_of_nfd = nfc.normalize(&nfd_once).into_owned();
     assert_eq!(
-        nfc_once, nfc_of_nfd,
+        nfc_once,
+        nfc_of_nfd,
         "NFC(NFD(x)) != NFC(x) for 50-mark input!\
          \n  NFC(x) cps: {}\
          \n  NFC(NFD(x)) cps: {}",

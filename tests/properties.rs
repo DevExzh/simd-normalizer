@@ -6,8 +6,8 @@
 
 use proptest::prelude::*;
 use simd_normalizer::UnicodeNormalization;
-use simd_normalizer::{CaseFoldMode, casefold, skeleton};
 use simd_normalizer::matching::{MatchingOptions, normalize_for_matching};
+use simd_normalizer::{CaseFoldMode, casefold, skeleton};
 use std::borrow::Cow;
 
 // ---------------------------------------------------------------------------

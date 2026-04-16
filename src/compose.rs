@@ -103,9 +103,7 @@ pub(crate) fn compose_combining_sequence_into(
             Some(prev_ccc) => prev_ccc >= entry.ccc,
         };
 
-        if !blocked
-            && let Some(composed) = compose(current_starter, entry.ch)
-        {
+        if !blocked && let Some(composed) = compose(current_starter, entry.ch) {
             current_starter = composed;
             composed_mask |= 1u32 << i;
             continue;

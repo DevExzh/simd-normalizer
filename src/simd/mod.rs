@@ -146,7 +146,7 @@ mod dispatch {
             target_feature = "avx512bw"
         )))]
         {
-            return &super::VTABLE_SCALAR;
+            &super::VTABLE_SCALAR
         }
     }
 }
@@ -326,6 +326,9 @@ mod tests {
     fn vtable_get_returns_consistent_reference() {
         let vt1 = dispatch::get_vtable();
         let vt2 = dispatch::get_vtable();
-        assert!(core::ptr::eq(vt1, vt2), "get_vtable() must return the same reference");
+        assert!(
+            core::ptr::eq(vt1, vt2),
+            "get_vtable() must return the same reference"
+        );
     }
 }

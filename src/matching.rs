@@ -93,9 +93,7 @@ fn one_pass(input: &str, opts: &MatchingOptions) -> String {
 ///
 /// Useful for interoperability with systems that use UTF-16 keyword tables.
 pub fn normalize_for_matching_utf16(input: &str, opts: &MatchingOptions) -> Vec<u16> {
-    normalize_for_matching(input, opts)
-        .encode_utf16()
-        .collect()
+    normalize_for_matching(input, opts).encode_utf16().collect()
 }
 
 /// Check whether two strings match after full normalization.
@@ -299,11 +297,20 @@ mod tests {
     #[test]
     fn matching_idempotent() {
         let opts = default_opts();
-        let inputs = ["hello", "File", "\u{0430}\u{0440}\u{0440}l\u{0435}", "\u{00C0}"];
+        let inputs = [
+            "hello",
+            "File",
+            "\u{0430}\u{0440}\u{0440}l\u{0435}",
+            "\u{00C0}",
+        ];
         for input in &inputs {
             let once = normalize_for_matching(input, &opts);
             let twice = normalize_for_matching(&once, &opts);
-            assert_eq!(once, twice, "normalize_for_matching should be idempotent for {:?}", input);
+            assert_eq!(
+                once, twice,
+                "normalize_for_matching should be idempotent for {:?}",
+                input
+            );
         }
     }
 

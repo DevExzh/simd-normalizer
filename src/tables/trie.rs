@@ -113,8 +113,7 @@ impl CodePointTrie {
         let l1_entry = unsafe { *self.supp_index1.get_unchecked(i1) } as usize;
 
         let i2_offset = ((adjusted >> SUPP_SHIFT_2) & SUPP_MASK_2) as usize;
-        let l2_entry =
-            unsafe { *self.supp_index2.get_unchecked(l1_entry + i2_offset) } as usize;
+        let l2_entry = unsafe { *self.supp_index2.get_unchecked(l1_entry + i2_offset) } as usize;
 
         let data_offset = (adjusted & SUPP_MASK_DATA) as usize;
         unsafe { *self.data.get_unchecked(l2_entry + data_offset) }

@@ -68,22 +68,26 @@ fn assert_all_forms_match_icu(input: &str) {
     let icu_nfkd_result = icu_nfkd(input);
 
     assert_eq!(
-        &*nfc_result, &icu_nfc_result,
+        &*nfc_result,
+        &icu_nfc_result,
         "NFC mismatch for input of {} bytes",
         input.len()
     );
     assert_eq!(
-        &*nfd_result, &icu_nfd_result,
+        &*nfd_result,
+        &icu_nfd_result,
         "NFD mismatch for input of {} bytes",
         input.len()
     );
     assert_eq!(
-        &*nfkc_result, &icu_nfkc_result,
+        &*nfkc_result,
+        &icu_nfkc_result,
         "NFKC mismatch for input of {} bytes",
         input.len()
     );
     assert_eq!(
-        &*nfkd_result, &icu_nfkd_result,
+        &*nfkd_result,
+        &icu_nfkd_result,
         "NFKD mismatch for input of {} bytes",
         input.len()
     );
@@ -407,22 +411,26 @@ fn large_1mb_repeating_pattern() {
     let ref_nfkd = icu_nfkd(&large_input);
 
     assert_eq!(
-        &*our_nfc, &ref_nfc,
+        &*our_nfc,
+        &ref_nfc,
         "NFC mismatch on 1MB input ({} bytes)",
         large_input.len()
     );
     assert_eq!(
-        &*our_nfd, &ref_nfd,
+        &*our_nfd,
+        &ref_nfd,
         "NFD mismatch on 1MB input ({} bytes)",
         large_input.len()
     );
     assert_eq!(
-        &*our_nfkc, &ref_nfkc,
+        &*our_nfkc,
+        &ref_nfkc,
         "NFKC mismatch on 1MB input ({} bytes)",
         large_input.len()
     );
     assert_eq!(
-        &*our_nfkd, &ref_nfkd,
+        &*our_nfkd,
+        &ref_nfkd,
         "NFKD mismatch on 1MB input ({} bytes)",
         large_input.len()
     );
@@ -442,26 +450,10 @@ fn boundary_sweep_ascii_around_64() {
         let nfkc = NfkcNormalizer.normalize(&input);
         let nfkd = NfkdNormalizer.normalize(&input);
 
-        assert!(
-            is_borrowed(&nfc),
-            "NFC should borrow {}-byte ASCII",
-            len
-        );
-        assert!(
-            is_borrowed(&nfd),
-            "NFD should borrow {}-byte ASCII",
-            len
-        );
-        assert!(
-            is_borrowed(&nfkc),
-            "NFKC should borrow {}-byte ASCII",
-            len
-        );
-        assert!(
-            is_borrowed(&nfkd),
-            "NFKD should borrow {}-byte ASCII",
-            len
-        );
+        assert!(is_borrowed(&nfc), "NFC should borrow {}-byte ASCII", len);
+        assert!(is_borrowed(&nfd), "NFD should borrow {}-byte ASCII", len);
+        assert!(is_borrowed(&nfkc), "NFKC should borrow {}-byte ASCII", len);
+        assert!(is_borrowed(&nfkd), "NFKD should borrow {}-byte ASCII", len);
 
         assert_eq!(&*nfc, &input);
         assert_all_forms_match_icu(&input);
@@ -477,26 +469,10 @@ fn boundary_sweep_ascii_around_128() {
         let nfkc = NfkcNormalizer.normalize(&input);
         let nfkd = NfkdNormalizer.normalize(&input);
 
-        assert!(
-            is_borrowed(&nfc),
-            "NFC should borrow {}-byte ASCII",
-            len
-        );
-        assert!(
-            is_borrowed(&nfd),
-            "NFD should borrow {}-byte ASCII",
-            len
-        );
-        assert!(
-            is_borrowed(&nfkc),
-            "NFKC should borrow {}-byte ASCII",
-            len
-        );
-        assert!(
-            is_borrowed(&nfkd),
-            "NFKD should borrow {}-byte ASCII",
-            len
-        );
+        assert!(is_borrowed(&nfc), "NFC should borrow {}-byte ASCII", len);
+        assert!(is_borrowed(&nfd), "NFD should borrow {}-byte ASCII", len);
+        assert!(is_borrowed(&nfkc), "NFKC should borrow {}-byte ASCII", len);
+        assert!(is_borrowed(&nfkd), "NFKD should borrow {}-byte ASCII", len);
 
         assert_eq!(&*nfc, &input);
         assert_all_forms_match_icu(&input);
@@ -594,7 +570,10 @@ fn combining_sequence_split_exactly_at_64() {
     // NFC should compose e + combining acute -> e-acute (U+00E9)
     let nfc = NfcNormalizer.normalize(&input);
     let expected_nfc = format!("{}\u{00E9}", prefix);
-    assert_eq!(&*nfc, &expected_nfc, "NFC should compose e + acute to e-acute");
+    assert_eq!(
+        &*nfc, &expected_nfc,
+        "NFC should compose e + acute to e-acute"
+    );
 }
 
 #[test]
@@ -664,12 +643,12 @@ fn three_chunks_with_boundary_straddling() {
     while input.len() < 126 {
         input.push('x');
     }
-    input.push_str("\u{4E00}"); // CJK at bytes 126-128 (straddles chunk 2 boundary)
+    input.push('\u{4E00}'); // CJK at bytes 126-128 (straddles chunk 2 boundary)
     // Pad to byte 189
     while input.len() < 189 {
         input.push('y');
     }
-    input.push_str("\u{1F600}"); // emoji at bytes 189-192 (straddles chunk 3 boundary)
+    input.push('\u{1F600}'); // emoji at bytes 189-192 (straddles chunk 3 boundary)
     input.push_str("tail");
     assert_all_forms_match_icu(&input);
 }
@@ -727,10 +706,7 @@ fn large_varied_pattern_1mb() {
     // the multi-byte chars will fall at different offsets in each SIMD chunk.
     let ascii_37 = ascii_bytes(37);
     let ascii_13 = ascii_bytes(13);
-    let pattern = format!(
-        "{}\u{00E9}{}\u{4E00}\u{1F600}\u{0301}",
-        ascii_37, ascii_13
-    );
+    let pattern = format!("{}\u{00E9}{}\u{4E00}\u{1F600}\u{0301}", ascii_37, ascii_13);
     assert_eq!(pattern.len(), 61);
 
     let target_size = 1024 * 1024;

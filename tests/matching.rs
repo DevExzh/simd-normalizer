@@ -1,7 +1,9 @@
 //! Integration tests for the fused matching normalization pipeline.
 
-use simd_normalizer::matching::{MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16};
 use simd_normalizer::CaseFoldMode;
+use simd_normalizer::matching::{
+    MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
+};
 
 fn default_opts() -> MatchingOptions {
     MatchingOptions::default()
@@ -22,8 +24,16 @@ fn file_variants_produce_identical_output() {
     let opts = default_opts();
     let canonical = normalize_for_matching("file", &opts);
 
-    assert_eq!(normalize_for_matching("File", &opts), canonical, "'File' should match 'file'");
-    assert_eq!(normalize_for_matching("FILE", &opts), canonical, "'FILE' should match 'file'");
+    assert_eq!(
+        normalize_for_matching("File", &opts),
+        canonical,
+        "'File' should match 'file'"
+    );
+    assert_eq!(
+        normalize_for_matching("FILE", &opts),
+        canonical,
+        "'FILE' should match 'file'"
+    );
 
     // fıle — Turkish dotless-ı (U+0131)
     let result_fıle = normalize_for_matching("f\u{0131}le", &opts);
@@ -176,7 +186,10 @@ fn utf16_supplementary_surrogates() {
     let opts = default_opts();
     // Emoji: U+1F600 — encodes as surrogate pair in UTF-16
     let utf16 = normalize_for_matching_utf16("\u{1F600}", &opts);
-    assert!(utf16.len() >= 2, "supplementary char should produce surrogate pair");
+    assert!(
+        utf16.len() >= 2,
+        "supplementary char should produce surrogate pair"
+    );
     let decoded = String::from_utf16(&utf16).expect("valid UTF-16");
     assert_eq!(decoded, normalize_for_matching("\u{1F600}", &opts));
 }

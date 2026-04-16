@@ -1,9 +1,9 @@
 //! Table access API -- trie lookup wrappers for decomposition, composition,
 //! CCC, and quick-check data.
 
+pub(crate) mod casefold;
 pub(crate) mod ccc;
 pub(crate) mod ccc_qc;
-pub(crate) mod casefold;
 pub(crate) mod composition;
 pub(crate) mod confusable;
 pub(crate) mod decomposition;
@@ -209,7 +209,10 @@ pub(crate) unsafe fn raw_decomp_trie_value_supplementary(
 
 /// Decode a decomposition trie value into (DecompResult, CCC).
 #[inline]
-pub(crate) fn decode_trie_value(trie_value: u32, form: crate::decompose::DecompForm) -> (DecompResult, u8) {
+pub(crate) fn decode_trie_value(
+    trie_value: u32,
+    form: crate::decompose::DecompForm,
+) -> (DecompResult, u8) {
     let ccc = ccc_from_trie_value(trie_value);
     let expansion_table = match form {
         crate::decompose::DecompForm::Canonical => decomposition::CANONICAL_EXPANSIONS,
@@ -643,15 +646,15 @@ mod tests {
                 assert_eq!(data[0] >> EXPANSION_CCC_SHIFT, 0); // CCC=0
                 assert_eq!(data[1] & EXPANSION_CP_MASK, 0x0300); // combining grave accent
                 assert_eq!(data[1] >> EXPANSION_CCC_SHIFT, 230); // CCC=230
-            }
+            },
             DecompResult::Singleton(ch) => {
                 // Some generators produce singleton for single-char decomp.
                 // But U+00C0 decomposes to two characters, so this shouldn't happen.
                 panic!("Expected Expansion for U+00C0, got Singleton({ch:?})");
-            }
+            },
             DecompResult::None => {
                 panic!("Expected decomposition for U+00C0, got None");
-            }
+            },
         }
     }
 

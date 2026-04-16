@@ -261,7 +261,9 @@ mod tests {
     fn test_overflow_stability() {
         let mut buf = CccBuffer::new();
         // Push >18 entries to trigger overflow, all same CCC for stability check.
-        let chars: Vec<char> = (0..20).map(|i| char::from_u32(0xE000 + i).unwrap()).collect();
+        let chars: Vec<char> = (0..20)
+            .map(|i| char::from_u32(0xE000 + i).unwrap())
+            .collect();
         for &ch in &chars {
             buf.push(ch, 230);
         }

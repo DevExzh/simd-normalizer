@@ -25,7 +25,7 @@ fn skeleton_converges_in_two_passes() {
         "hello",
         "apple",
         "\u{0430}\u{0440}\u{0440}l\u{0435}", // mixed Cyrillic
-        "\u{00C0}test",                         // precomposed
+        "\u{00C0}test",                      // precomposed
         "12345",
         "\u{1F600}", // emoji
         "\u{01C4}",  // Ǆ — compatibility character with confusable parts
@@ -34,7 +34,11 @@ fn skeleton_converges_in_two_passes() {
         let once = skeleton(input);
         let twice = skeleton(&once);
         let thrice = skeleton(&twice);
-        assert_eq!(twice, thrice, "skeleton did not converge after two passes for {:?}", input);
+        assert_eq!(
+            twice, thrice,
+            "skeleton did not converge after two passes for {:?}",
+            input
+        );
     }
 }
 

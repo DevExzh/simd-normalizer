@@ -82,7 +82,10 @@ fn test_nfc_vectors() {
         ("\u{301}a", "\u{301}a"),
         ("\u{d4db}", "\u{d4db}"),
         ("\u{ac1c}", "\u{ac1c}"),
-        ("a\u{300}\u{305}\u{315}\u{5ae}b", "\u{e0}\u{5ae}\u{305}\u{315}b"),
+        (
+            "a\u{300}\u{305}\u{315}\u{5ae}b",
+            "\u{e0}\u{5ae}\u{305}\u{315}b",
+        ),
     ];
 
     for (input, expected) in cases {
@@ -108,7 +111,10 @@ fn test_nfkc_vectors() {
         ("\u{301}a", "\u{301}a"),
         ("\u{d4db}", "\u{d4db}"),
         ("\u{ac1c}", "\u{ac1c}"),
-        ("a\u{300}\u{305}\u{315}\u{5ae}b", "\u{e0}\u{5ae}\u{305}\u{315}b"),
+        (
+            "a\u{300}\u{305}\u{315}\u{5ae}b",
+            "\u{e0}\u{5ae}\u{305}\u{315}b",
+        ),
     ];
 
     for (input, expected) in cases {
@@ -132,22 +138,10 @@ fn test_cjk_compat_decomposition() {
     let s = "\u{2f999}\u{2f8a6}";
     let expected = "\u{831d}\u{6148}";
 
-    assert_eq!(
-        &*s.nfd(), expected,
-        "NFD of CJK compat ideographs"
-    );
-    assert_eq!(
-        &*s.nfkd(), expected,
-        "NFKD of CJK compat ideographs"
-    );
-    assert_eq!(
-        &*s.nfc(), expected,
-        "NFC of CJK compat ideographs"
-    );
-    assert_eq!(
-        &*s.nfkc(), expected,
-        "NFKC of CJK compat ideographs"
-    );
+    assert_eq!(&*s.nfd(), expected, "NFD of CJK compat ideographs");
+    assert_eq!(&*s.nfkd(), expected, "NFKD of CJK compat ideographs");
+    assert_eq!(&*s.nfc(), expected, "NFC of CJK compat ideographs");
+    assert_eq!(&*s.nfkc(), expected, "NFKC of CJK compat ideographs");
 }
 
 // ============================================================================
@@ -167,16 +161,28 @@ fn test_quick_check_cross_form_consistency() {
         // (These are also in conformance.rs, but included here for completeness
         // of the cross-form logic below which depends on them.)
         if !t.nfc.is_nfc() {
-            failures.push(format!("case {i}: is_nfc(nfc) should be true, nfc={:?}", t.nfc));
+            failures.push(format!(
+                "case {i}: is_nfc(nfc) should be true, nfc={:?}",
+                t.nfc
+            ));
         }
         if !t.nfd.is_nfd() {
-            failures.push(format!("case {i}: is_nfd(nfd) should be true, nfd={:?}", t.nfd));
+            failures.push(format!(
+                "case {i}: is_nfd(nfd) should be true, nfd={:?}",
+                t.nfd
+            ));
         }
         if !t.nfkc.is_nfkc() {
-            failures.push(format!("case {i}: is_nfkc(nfkc) should be true, nfkc={:?}", t.nfkc));
+            failures.push(format!(
+                "case {i}: is_nfkc(nfkc) should be true, nfkc={:?}",
+                t.nfkc
+            ));
         }
         if !t.nfkd.is_nfkd() {
-            failures.push(format!("case {i}: is_nfkd(nfkd) should be true, nfkd={:?}", t.nfkd));
+            failures.push(format!(
+                "case {i}: is_nfkd(nfkd) should be true, nfkd={:?}",
+                t.nfkd
+            ));
         }
 
         // Cross-form: if NFC != NFD, then NFD should not be NFC and vice versa.

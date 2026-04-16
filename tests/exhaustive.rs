@@ -53,22 +53,30 @@ fn our_nfkd(s: &str) -> String {
 
 fn icu_nfc(s: &str) -> String {
     use icu_normalizer::ComposingNormalizerBorrowed;
-    ComposingNormalizerBorrowed::new_nfc().normalize(s).into_owned()
+    ComposingNormalizerBorrowed::new_nfc()
+        .normalize(s)
+        .into_owned()
 }
 
 fn icu_nfd(s: &str) -> String {
     use icu_normalizer::DecomposingNormalizerBorrowed;
-    DecomposingNormalizerBorrowed::new_nfd().normalize(s).into_owned()
+    DecomposingNormalizerBorrowed::new_nfd()
+        .normalize(s)
+        .into_owned()
 }
 
 fn icu_nfkc(s: &str) -> String {
     use icu_normalizer::ComposingNormalizerBorrowed;
-    ComposingNormalizerBorrowed::new_nfkc().normalize(s).into_owned()
+    ComposingNormalizerBorrowed::new_nfkc()
+        .normalize(s)
+        .into_owned()
 }
 
 fn icu_nfkd(s: &str) -> String {
     use icu_normalizer::DecomposingNormalizerBorrowed;
-    DecomposingNormalizerBorrowed::new_nfkd().normalize(s).into_owned()
+    DecomposingNormalizerBorrowed::new_nfkd()
+        .normalize(s)
+        .into_owned()
 }
 
 // ---------------------------------------------------------------------------
@@ -115,27 +123,27 @@ fn all_scalar_values() -> impl Iterator<Item = char> {
 fn sampled_scalar_values(step: u32) -> impl Iterator<Item = char> {
     // Interesting boundary ranges to always include
     let boundary_ranges: Vec<std::ops::RangeInclusive<u32>> = vec![
-        0x0000..=0x00FF,     // Basic Latin + Latin-1 Supplement
-        0x0300..=0x036F,     // Combining Diacritical Marks
-        0x0590..=0x05FF,     // Hebrew
-        0x0600..=0x06FF,     // Arabic
-        0x0900..=0x097F,     // Devanagari
-        0x1100..=0x11FF,     // Hangul Jamo
-        0x2000..=0x206F,     // General Punctuation
-        0x2100..=0x214F,     // Letterlike Symbols
-        0x2150..=0x218F,     // Number Forms
-        0x2460..=0x24FF,     // Enclosed Alphanumerics
-        0x3040..=0x30FF,     // Hiragana + Katakana
-        0x3300..=0x33FF,     // CJK Compatibility
+        0x0000..=0x00FF,       // Basic Latin + Latin-1 Supplement
+        0x0300..=0x036F,       // Combining Diacritical Marks
+        0x0590..=0x05FF,       // Hebrew
+        0x0600..=0x06FF,       // Arabic
+        0x0900..=0x097F,       // Devanagari
+        0x1100..=0x11FF,       // Hangul Jamo
+        0x2000..=0x206F,       // General Punctuation
+        0x2100..=0x214F,       // Letterlike Symbols
+        0x2150..=0x218F,       // Number Forms
+        0x2460..=0x24FF,       // Enclosed Alphanumerics
+        0x3040..=0x30FF,       // Hiragana + Katakana
+        0x3300..=0x33FF,       // CJK Compatibility
         0xAC00..=0xAC00 + 100, // Hangul Syllables (first 100)
-        0xD7A0..=0xD7FF,     // Hangul Jamo Extended-B (near surrogates)
-        0xF900..=0xFAFF,     // CJK Compatibility Ideographs
-        0xFB00..=0xFB06,     // Latin ligatures
-        0xFE00..=0xFE0F,     // Variation Selectors
-        0xFF00..=0xFFEF,     // Halfwidth and Fullwidth Forms
-        0x1D100..=0x1D1FF,   // Musical Symbols
-        0x1F600..=0x1F64F,   // Emoticons
-        0x10FF00..=0x10FFFF, // Last valid range (plane 16 tail)
+        0xD7A0..=0xD7FF,       // Hangul Jamo Extended-B (near surrogates)
+        0xF900..=0xFAFF,       // CJK Compatibility Ideographs
+        0xFB00..=0xFB06,       // Latin ligatures
+        0xFE00..=0xFE0F,       // Variation Selectors
+        0xFF00..=0xFFEF,       // Halfwidth and Fullwidth Forms
+        0x1D100..=0x1D1FF,     // Musical Symbols
+        0x1F600..=0x1F64F,     // Emoticons
+        0x10FF00..=0x10FFFF,   // Last valid range (plane 16 tail)
     ];
 
     let mut seen = HashSet::new();
@@ -144,10 +152,10 @@ fn sampled_scalar_values(step: u32) -> impl Iterator<Item = char> {
     // Add all boundary codepoints
     for range in boundary_ranges {
         for u in range {
-            if let Some(c) = char::from_u32(u) {
-                if seen.insert(u) {
-                    result.push(c);
-                }
+            if let Some(c) = char::from_u32(u)
+                && seen.insert(u)
+            {
+                result.push(c);
             }
         }
     }
@@ -155,10 +163,10 @@ fn sampled_scalar_values(step: u32) -> impl Iterator<Item = char> {
     // Add every step-th codepoint
     let mut u = 0u32;
     while u <= 0x10FFFF {
-        if let Some(c) = char::from_u32(u) {
-            if seen.insert(u) {
-                result.push(c);
-            }
+        if let Some(c) = char::from_u32(u)
+            && seen.insert(u)
+        {
+            result.push(c);
         }
         u += step;
     }
@@ -545,25 +553,37 @@ fn is_normalized_consistency_full() {
         // NFC
         let normalized = our_nfc(&s);
         if normalized == s && !s.is_nfc() {
-            failures.push(format!("U+{:04X}: NFC is invariant but is_nfc()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFC is invariant but is_nfc()=false",
+                c as u32
+            ));
         }
 
         // NFD
         let normalized = our_nfd(&s);
         if normalized == s && !s.is_nfd() {
-            failures.push(format!("U+{:04X}: NFD is invariant but is_nfd()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFD is invariant but is_nfd()=false",
+                c as u32
+            ));
         }
 
         // NFKC
         let normalized = our_nfkc(&s);
         if normalized == s && !s.is_nfkc() {
-            failures.push(format!("U+{:04X}: NFKC is invariant but is_nfkc()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFKC is invariant but is_nfkc()=false",
+                c as u32
+            ));
         }
 
         // NFKD
         let normalized = our_nfkd(&s);
         if normalized == s && !s.is_nfkd() {
-            failures.push(format!("U+{:04X}: NFKD is invariant but is_nfkd()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFKD is invariant but is_nfkd()=false",
+                c as u32
+            ));
         }
 
         if failures.len() > 100 {
@@ -591,22 +611,34 @@ fn is_normalized_consistency_spot_check() {
 
         let normalized = our_nfc(&s);
         if normalized == s && !s.is_nfc() {
-            failures.push(format!("U+{:04X}: NFC is invariant but is_nfc()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFC is invariant but is_nfc()=false",
+                c as u32
+            ));
         }
 
         let normalized = our_nfd(&s);
         if normalized == s && !s.is_nfd() {
-            failures.push(format!("U+{:04X}: NFD is invariant but is_nfd()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFD is invariant but is_nfd()=false",
+                c as u32
+            ));
         }
 
         let normalized = our_nfkc(&s);
         if normalized == s && !s.is_nfkc() {
-            failures.push(format!("U+{:04X}: NFKC is invariant but is_nfkc()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFKC is invariant but is_nfkc()=false",
+                c as u32
+            ));
         }
 
         let normalized = our_nfkd(&s);
         if normalized == s && !s.is_nfkd() {
-            failures.push(format!("U+{:04X}: NFKD is invariant but is_nfkd()=false", c as u32));
+            failures.push(format!(
+                "U+{:04X}: NFKD is invariant but is_nfkd()=false",
+                c as u32
+            ));
         }
     }
 

@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::thread;
 
 use simd_normalizer::{
-    nfc, nfd, nfkc, nfkd, CaseFoldMode, IsNormalized, MatchingOptions, NfcNormalizer,
-    NfdNormalizer, NfkcNormalizer, NfkdNormalizer, UnicodeNormalization,
+    CaseFoldMode, IsNormalized, MatchingOptions, NfcNormalizer, NfdNormalizer, NfkcNormalizer,
+    NfkdNormalizer, UnicodeNormalization, nfc, nfd, nfkc, nfkd,
 };
 
 // =========================================================================
@@ -23,9 +23,18 @@ use simd_normalizer::{
 fn concurrent_normalization_8_threads() {
     // Thread inputs -- each exercises a different script / text category.
     let inputs: &[(&str, &str)] = &[
-        ("ascii", "The quick brown fox jumps over the lazy dog. 0123456789!"),
-        ("cjk", "\u{4E16}\u{754C}\u{4F60}\u{597D}\u{6D4B}\u{8BD5}\u{6587}\u{672C}"),
-        ("emoji", "\u{1F600}\u{1F60D}\u{1F389}\u{1F680}\u{2764}\u{FE0F}\u{1F308}\u{1F3B6}"),
+        (
+            "ascii",
+            "The quick brown fox jumps over the lazy dog. 0123456789!",
+        ),
+        (
+            "cjk",
+            "\u{4E16}\u{754C}\u{4F60}\u{597D}\u{6D4B}\u{8BD5}\u{6587}\u{672C}",
+        ),
+        (
+            "emoji",
+            "\u{1F600}\u{1F60D}\u{1F389}\u{1F680}\u{2764}\u{FE0F}\u{1F308}\u{1F3B6}",
+        ),
         (
             "combining",
             "A\u{0300}\u{0301}\u{0302}e\u{0308}\u{0304}o\u{0327}\u{0328}\u{030A}",
@@ -63,9 +72,8 @@ fn concurrent_normalization_8_threads() {
         .collect();
 
     let inputs_arc: Arc<Vec<(String, String, String, String)>> = Arc::new(expected);
-    let raw_inputs: Arc<Vec<String>> = Arc::new(
-        inputs.iter().map(|(_, s)| s.to_string()).collect(),
-    );
+    let raw_inputs: Arc<Vec<String>> =
+        Arc::new(inputs.iter().map(|(_, s)| s.to_string()).collect());
 
     let handles: Vec<_> = (0..8)
         .map(|i| {
@@ -91,7 +99,8 @@ fn concurrent_normalization_8_threads() {
         .collect();
 
     for h in handles {
-        h.join().expect("thread panicked during concurrent normalization");
+        h.join()
+            .expect("thread panicked during concurrent normalization");
     }
 }
 
@@ -147,7 +156,8 @@ fn concurrent_is_normalized_and_normalize() {
     }
 
     for h in handles {
-        h.join().expect("thread panicked during concurrent is_normalized + normalize");
+        h.join()
+            .expect("thread panicked during concurrent is_normalized + normalize");
     }
 }
 
@@ -226,9 +236,7 @@ fn nostd_alloc_compiles() {
 /// when called from multiple threads simultaneously.
 #[test]
 fn concurrent_trait_methods() {
-    let input = Arc::new(String::from(
-        "\u{00C5}\u{03A9}\u{FB01}A\u{0300}\u{0301}",
-    ));
+    let input = Arc::new(String::from("\u{00C5}\u{03A9}\u{FB01}A\u{0300}\u{0301}"));
 
     let expected_nfc = input.as_str().nfc().into_owned();
     let expected_nfd = input.as_str().nfd().into_owned();
@@ -254,6 +262,7 @@ fn concurrent_trait_methods() {
         .collect();
 
     for h in handles {
-        h.join().expect("thread panicked during concurrent trait method calls");
+        h.join()
+            .expect("thread panicked during concurrent trait method calls");
     }
 }

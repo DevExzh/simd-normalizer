@@ -36,13 +36,13 @@ pub(crate) fn decode_char_at(bytes: &[u8], pos: usize) -> (char, usize) {
             ((b0 as u32 & 0x0F) << 12)
                 | ((bytes[pos + 1] as u32 & 0x3F) << 6)
                 | (bytes[pos + 2] as u32 & 0x3F)
-        }
+        },
         4 => {
             ((b0 as u32 & 0x07) << 18)
                 | ((bytes[pos + 1] as u32 & 0x3F) << 12)
                 | ((bytes[pos + 2] as u32 & 0x3F) << 6)
                 | (bytes[pos + 3] as u32 & 0x3F)
-        }
+        },
         _ => unreachable!(),
     };
     // Safety: input comes from valid &str, so cp is a valid Unicode scalar value.

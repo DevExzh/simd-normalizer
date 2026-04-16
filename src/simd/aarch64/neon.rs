@@ -40,7 +40,7 @@ unsafe fn simd_load(ptr: *const u8) -> SimdVec {
 #[target_feature(enable = "neon")]
 #[inline]
 unsafe fn simd_splat(val: u8) -> SimdVec {
-    unsafe { vdupq_n_u8(val) }
+    vdupq_n_u8(val)
 }
 
 /// Compare `a >= b` for unsigned bytes. Returns a bitmask with one bit per

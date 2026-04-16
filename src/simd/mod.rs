@@ -48,6 +48,7 @@ pub(crate) struct SimdVTable {
 // Static VTable instances -- one per architecture level
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 static VTABLE_SCALAR: SimdVTable = SimdVTable {
     scan_chunk: scalar::scan_chunk,
     scan_and_prefetch: scalar::scan_and_prefetch,

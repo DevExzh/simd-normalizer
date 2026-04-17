@@ -460,7 +460,7 @@ fn utf16_ascii_only_no_surrogates() {
     // All code units should be in BMP range (no surrogate pairs for ASCII).
     for &cu in &utf16 {
         assert!(
-            cu < 0xD800 || cu > 0xDFFF,
+            !(0xD800..=0xDFFF).contains(&cu),
             "ASCII-only input should not produce surrogate pairs, found {:04X}",
             cu,
         );
@@ -563,6 +563,7 @@ fn matching_options_default_is_standard() {
 }
 
 #[test]
+#[allow(clippy::clone_on_copy)]
 fn matching_options_clone_and_copy() {
     let opts = MatchingOptions {
         case_fold: CaseFoldMode::Turkish,
@@ -601,6 +602,7 @@ fn matching_options_eq() {
 }
 
 #[test]
+#[allow(clippy::clone_on_copy)]
 fn casefold_mode_clone_copy_debug_eq() {
     let standard = CaseFoldMode::Standard;
     let turkish = CaseFoldMode::Turkish;
@@ -653,9 +655,9 @@ fn only_combining_marks() {
     // U+0308 COMBINING DIAERESIS
     let marks = "\u{0300}\u{0301}\u{0302}\u{0303}\u{0308}";
     let result = normalize_for_matching(marks, &opts);
-    // Should not panic. Result may or may not be empty depending on
-    // whether confusable skeleton maps combining marks.
-    let _ = result;
+    // Should not panic. Verify idempotence regardless of what the result is.
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Combining-marks-only result should be idempotent");
 }
 
 #[test]
@@ -688,8 +690,9 @@ fn null_character() {
     // U+0000 is a valid Rust char but unusual.
     let input = "\u{0000}";
     let result = normalize_for_matching(input, &opts);
-    // Should not panic. The null character might pass through or be mapped.
-    let _ = result;
+    // Should not panic. Verify idempotence.
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Null character result should be idempotent");
 }
 
 #[test]
@@ -697,8 +700,9 @@ fn null_character_in_middle() {
     let opts = default_opts();
     let input = "ab\u{0000}cd";
     let result = normalize_for_matching(input, &opts);
-    // Should not panic.
     assert!(!result.is_empty());
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Null-in-middle result should be idempotent");
 }
 
 #[test]
@@ -743,8 +747,8 @@ fn replacement_character() {
     let opts = default_opts();
     // U+FFFD REPLACEMENT CHARACTER
     let result = normalize_for_matching("\u{FFFD}", &opts);
-    // Should not panic.
-    let _ = result;
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Replacement character result should be idempotent");
 }
 
 #[test]
@@ -752,8 +756,8 @@ fn bom_character() {
     let opts = default_opts();
     // U+FEFF BYTE ORDER MARK (ZERO WIDTH NO-BREAK SPACE)
     let result = normalize_for_matching("\u{FEFF}", &opts);
-    // Should not panic.
-    let _ = result;
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "BOM result should be idempotent");
 }
 
 #[test]
@@ -761,7 +765,8 @@ fn soft_hyphen() {
     let opts = default_opts();
     // U+00AD SOFT HYPHEN
     let result = normalize_for_matching("\u{00AD}", &opts);
-    let _ = result;
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Soft hyphen result should be idempotent");
 }
 
 #[test]
@@ -773,8 +778,8 @@ fn zero_width_chars() {
     // U+FEFF BOM / ZERO WIDTH NO-BREAK SPACE
     let input = "\u{200B}\u{200C}\u{200D}\u{FEFF}";
     let result = normalize_for_matching(input, &opts);
-    // Should not panic.
-    let _ = result;
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Zero-width chars result should be idempotent");
 }
 
 #[test]
@@ -793,8 +798,8 @@ fn max_unicode_scalar() {
     let opts = default_opts();
     // U+10FFFF is the maximum Unicode scalar value.
     let result = normalize_for_matching("\u{10FFFF}", &opts);
-    // Should not panic.
-    let _ = result;
+    let again = normalize_for_matching(&result, &opts);
+    assert_eq!(result, again, "Max Unicode scalar result should be idempotent");
 }
 
 // ===========================================================================
@@ -818,19 +823,16 @@ fn confusable_and_nfkc_combined() {
 fn repeated_normalization_stability() {
     let opts = default_opts();
     // Apply normalization many times and verify it stays stable.
-    let mut current = String::from("\u{FF21}\u{0410}\u{FB01}\u{00BD}");
-    for i in 0..10 {
-        let next = normalize_for_matching(&current, &opts);
-        if i > 0 {
-            // After the first normalization, all subsequent should be identical.
-            let prev = normalize_for_matching(&current, &opts);
-            assert_eq!(
-                next, prev,
-                "Normalization should be stable at iteration {}",
-                i
-            );
-        }
-        current = next;
+    let input = "\u{FF21}\u{0410}\u{FB01}\u{00BD}";
+    let mut prev_result = normalize_for_matching(input, &opts);
+    for i in 1..10 {
+        let next_result = normalize_for_matching(&prev_result, &opts);
+        assert_eq!(
+            prev_result, next_result,
+            "Normalization should be stable at iteration {}",
+            i
+        );
+        prev_result = next_result;
     }
 }
 
@@ -871,13 +873,9 @@ fn matches_normalized_transitive() {
     let bc = matches_normalized(b, c, &opts);
     let ac = matches_normalized(a, c, &opts);
 
-    if ab && bc {
-        assert!(
-            ac,
-            "matches_normalized should be transitive: A({:?})=B({:?})={}, B({:?})=C({:?})={}, but A=C={}",
-            a, b, ab, b, c, bc, ac,
-        );
-    }
+    assert!(ab, "Fullwidth A should match Latin A");
+    assert!(bc, "Latin A should match Cyrillic A");
+    assert!(ac, "Fullwidth A should match Cyrillic A (transitivity)");
 }
 
 #[test]

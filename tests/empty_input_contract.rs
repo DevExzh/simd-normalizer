@@ -102,6 +102,10 @@ fn empty_casefold_turkish_returns_borrowed_empty() {
     assert!(matches!(result, Cow::Borrowed(_)));
 }
 
+// `casefold_char` is intentionally not tested for empty input: it takes a
+// `char` (always present) not a `&str`, so "empty input" is not applicable.
+// Per spec section 4, line 88.
+
 #[test]
 fn empty_skeleton_returns_empty_string() {
     assert_eq!(skeleton(""), "");

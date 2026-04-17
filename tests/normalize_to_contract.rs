@@ -256,3 +256,18 @@ fn nfkc_normalize_to_large_compat_matches_normalize() {
     n.normalize_to(&input, &mut buf);
     assert_eq!(buf, &*n.normalize(&input));
 }
+
+#[test]
+fn nfkd_normalize_to_large_compat_matches_normalize() {
+    let n = NfkdNormalizer::new();
+    // Mixed: compat ligature + precomposed + ASCII → exercises both
+    // compatibility decomposition and canonical decomposition paths.
+    let chunk = "\u{FB01}\u{00C5}x"; // ﬁ Å x
+    let mut input = String::new();
+    while input.len() < 1200 {
+        input.push_str(chunk);
+    }
+    let mut buf = String::new();
+    n.normalize_to(&input, &mut buf);
+    assert_eq!(buf, &*n.normalize(&input));
+}

@@ -85,6 +85,28 @@ fn compat_heavy_strategy() -> impl Strategy<Value = String> {
     prop::collection::vec(ranges, 1..32).prop_map(|chars| chars.into_iter().collect::<String>())
 }
 
+/// Strategy biased toward supplementary-plane characters (planes 1-2).
+#[allow(dead_code)]
+fn supplementary_heavy_strategy() -> impl Strategy<Value = String> {
+    let ranges = prop::char::ranges(std::borrow::Cow::Borrowed(&[
+        // Musical Symbols (plane 1)
+        '\u{1D100}'..='\u{1D1FF}',
+        // Mathematical Alphanumeric Symbols (plane 1)
+        '\u{1D400}'..='\u{1D7FF}',
+        // Emoticons (plane 1)
+        '\u{1F600}'..='\u{1F64F}',
+        // CJK Unified Ideographs Extension B (plane 2, small slice)
+        '\u{20000}'..='\u{200FF}',
+        // Tags (plane 14)
+        '\u{E0001}'..='\u{E007F}',
+        // ASCII baseline for mix
+        '\u{0041}'..='\u{005A}',
+        // Combining marks
+        '\u{0300}'..='\u{036F}',
+    ]));
+    prop::collection::vec(ranges, 1..32).prop_map(|chars| chars.into_iter().collect::<String>())
+}
+
 // ===========================================================================
 // 1. NFKC implies NFC
 // ===========================================================================
@@ -299,7 +321,7 @@ fn nfkd_differs_from_nfd_but_equals_nfd_of_nfkc() {
         let nfkd = simd_normalizer::nfkd().normalize(input);
         let nfd = simd_normalizer::nfd().normalize(input);
         let nfkc = simd_normalizer::nfkc().normalize(input);
-        let nfd_of_nfkc = simd_normalizer::nfd().normalize(&*nfkc);
+        let nfd_of_nfkc = simd_normalizer::nfd().normalize(&nfkc);
 
         // NFKD and NFD may differ for compatibility characters
         // (but they are the same for characters with only canonical decompositions).
@@ -322,6 +344,65 @@ fn nfkd_differs_from_nfd_but_equals_nfd_of_nfkc() {
                 input, input
             );
         }
+    }
+}
+
+// ===========================================================================
+// 3b. NFC(x) == NFC(NFD(x)) and NFKC(x) == NFKC(NFKD(x))
+// ===========================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    /// NFC is stable after NFD: normalizing to NFC gives the same result
+    /// whether or not you decompose first.
+    #[test]
+    fn nfc_stable_after_nfd(s in unicode_string_strategy()) {
+        let nfc_s = s.nfc();
+        let nfd_s = s.nfd();
+        let nfc_of_nfd = nfd_s.nfc();
+        prop_assert_eq!(
+            &*nfc_s, &*nfc_of_nfd,
+            "NFC(s) != NFC(NFD(s))"
+        );
+    }
+
+    /// NFKC is stable after NFKD.
+    #[test]
+    fn nfkc_stable_after_nfkd(s in unicode_string_strategy()) {
+        let nfkc_s = s.nfkc();
+        let nfkd_s = s.nfkd();
+        let nfkc_of_nfkd = nfkd_s.nfkc();
+        prop_assert_eq!(
+            &*nfkc_s, &*nfkc_of_nfkd,
+            "NFKC(s) != NFKC(NFKD(s))"
+        );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn nfc_stable_after_nfd_compat_heavy(s in compat_heavy_strategy()) {
+        let nfc_s = s.nfc();
+        let nfd_s = s.nfd();
+        let nfc_of_nfd = nfd_s.nfc();
+        prop_assert_eq!(
+            &*nfc_s, &*nfc_of_nfd,
+            "NFC(s) != NFC(NFD(s)) for compat-heavy input"
+        );
+    }
+
+    #[test]
+    fn nfkc_stable_after_nfkd_compat_heavy(s in compat_heavy_strategy()) {
+        let nfkc_s = s.nfkc();
+        let nfkd_s = s.nfkd();
+        let nfkc_of_nfkd = nfkd_s.nfkc();
+        prop_assert_eq!(
+            &*nfkc_s, &*nfkc_of_nfkd,
+            "NFKC(s) != NFKC(NFKD(s)) for compat-heavy input"
+        );
     }
 }
 
@@ -529,6 +610,50 @@ proptest! {
     }
 }
 
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn normalize_to_matches_normalize_supplementary_nfc(s in supplementary_heavy_strategy()) {
+        let norm = simd_normalizer::nfc();
+        let expected = norm.normalize(&s);
+        let mut buf = String::new();
+        let was_normalized = norm.normalize_to(&s, &mut buf);
+        prop_assert_eq!(&buf, &*expected, "NFC normalize_to mismatch for supplementary input");
+        prop_assert_eq!(was_normalized, matches!(&expected, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn normalize_to_matches_normalize_supplementary_nfd(s in supplementary_heavy_strategy()) {
+        let norm = simd_normalizer::nfd();
+        let expected = norm.normalize(&s);
+        let mut buf = String::new();
+        let was_normalized = norm.normalize_to(&s, &mut buf);
+        prop_assert_eq!(&buf, &*expected, "NFD normalize_to mismatch for supplementary input");
+        prop_assert_eq!(was_normalized, matches!(&expected, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn normalize_to_matches_normalize_supplementary_nfkc(s in supplementary_heavy_strategy()) {
+        let norm = simd_normalizer::nfkc();
+        let expected = norm.normalize(&s);
+        let mut buf = String::new();
+        let was_normalized = norm.normalize_to(&s, &mut buf);
+        prop_assert_eq!(&buf, &*expected, "NFKC normalize_to mismatch for supplementary input");
+        prop_assert_eq!(was_normalized, matches!(&expected, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn normalize_to_matches_normalize_supplementary_nfkd(s in supplementary_heavy_strategy()) {
+        let norm = simd_normalizer::nfkd();
+        let expected = norm.normalize(&s);
+        let mut buf = String::new();
+        let was_normalized = norm.normalize_to(&s, &mut buf);
+        prop_assert_eq!(&buf, &*expected, "NFKD normalize_to mismatch for supplementary input");
+        prop_assert_eq!(was_normalized, matches!(&expected, Cow::Borrowed(_)));
+    }
+}
+
 /// normalize_to must correctly append to a non-empty buffer, matching
 /// the normalize output.
 #[test]
@@ -544,8 +669,9 @@ fn normalize_to_appends_correctly_all_forms() {
         "\u{00A0}",           // NBSP
     ];
 
-    let constructors: [(&str, fn() -> Box<dyn Fn(&str) -> Cow<'_, str> + 'static>,
-                         fn() -> Box<dyn Fn(&str, &mut String) -> bool + 'static>); 4] = [
+    type NormFn = fn() -> Box<dyn Fn(&str) -> Cow<'_, str> + 'static>;
+    type NormToFn = fn() -> Box<dyn Fn(&str, &mut String) -> bool + 'static>;
+    let constructors: [(&str, NormFn, NormToFn); 4] = [
         ("NFC",
          || Box::new(|s: &str| simd_normalizer::nfc().normalize(s)),
          || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfc().normalize_to(s, buf))),
@@ -621,6 +747,22 @@ proptest! {
         if s.is_nfkd() {
             prop_assert!(s.is_nfd(), "is_nfkd but not is_nfd for {:?}", s);
         }
+    }
+
+    /// After normalization, is_normalized MUST return true for the result.
+    #[test]
+    fn normalize_output_is_normalized(s in unicode_string_strategy()) {
+        let nfc_s = s.nfc();
+        prop_assert!(nfc_s.is_nfc(), "nfc(s) result not recognized as NFC for {:?}", s);
+
+        let nfd_s = s.nfd();
+        prop_assert!(nfd_s.is_nfd(), "nfd(s) result not recognized as NFD for {:?}", s);
+
+        let nfkc_s = s.nfkc();
+        prop_assert!(nfkc_s.is_nfkc(), "nfkc(s) result not recognized as NFKC for {:?}", s);
+
+        let nfkd_s = s.nfkd();
+        prop_assert!(nfkd_s.is_nfkd(), "nfkd(s) result not recognized as NFKD for {:?}", s);
     }
 }
 
@@ -1133,28 +1275,28 @@ fn comprehensive_deterministic_cross_form() {
         let nfkd = simd_normalizer::nfkd().normalize(input);
 
         // Invariant 3: NFKC == NFC(NFKD)
-        let nfc_of_nfkd = simd_normalizer::nfc().normalize(&*nfkd);
+        let nfc_of_nfkd = simd_normalizer::nfc().normalize(&nfkd);
         assert_eq!(
             &*nfkc, &*nfc_of_nfkd,
             "NFKC != NFC(NFKD) for {:?}", input
         );
 
         // Invariant 4: NFKD == NFD(NFKC)
-        let nfd_of_nfkc = simd_normalizer::nfd().normalize(&*nfkc);
+        let nfd_of_nfkc = simd_normalizer::nfd().normalize(&nfkc);
         assert_eq!(
             &*nfkd, &*nfd_of_nfkc,
             "NFKD != NFD(NFKC) for {:?}", input
         );
 
         // Invariant 8a: NFD(NFC) == NFD
-        let nfd_of_nfc = simd_normalizer::nfd().normalize(&*nfc);
+        let nfd_of_nfc = simd_normalizer::nfd().normalize(&nfc);
         assert_eq!(
             &*nfd_of_nfc, &*nfd,
             "NFD(NFC) != NFD for {:?}", input
         );
 
         // Invariant 8b: NFKD(NFKC) == NFKD
-        let nfkd_of_nfkc = simd_normalizer::nfkd().normalize(&*nfkc);
+        let nfkd_of_nfkc = simd_normalizer::nfkd().normalize(&nfkc);
         assert_eq!(
             &*nfkd_of_nfkc, &*nfkd,
             "NFKD(NFKC) != NFKD for {:?}", input

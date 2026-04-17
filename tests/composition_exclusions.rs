@@ -665,7 +665,7 @@ fn nfc_idempotent_for_all_singletons() {
 
     for input in &exclusions {
         let nfc_once = simd_normalizer::nfc().normalize(input);
-        let nfc_twice = simd_normalizer::nfc().normalize(&*nfc_once);
+        let nfc_twice = simd_normalizer::nfc().normalize(&nfc_once);
         assert_eq!(
             &*nfc_once, &*nfc_twice,
             "NFC is not idempotent for {:?}: first={:?}, second={:?}",
@@ -699,7 +699,7 @@ fn nfd_idempotent_for_all_singletons() {
 
     for input in &exclusions {
         let nfd_once = simd_normalizer::nfd().normalize(input);
-        let nfd_twice = simd_normalizer::nfd().normalize(&*nfd_once);
+        let nfd_twice = simd_normalizer::nfd().normalize(&nfd_once);
         assert_eq!(
             &*nfd_once, &*nfd_twice,
             "NFD is not idempotent for {:?}: first={:?}, second={:?}",
@@ -805,8 +805,8 @@ fn nfc_then_nfd_roundtrip() {
 
     for input in &inputs {
         let nfc1 = simd_normalizer::nfc().normalize(input);
-        let nfd1 = simd_normalizer::nfd().normalize(&*nfc1);
-        let nfc2 = simd_normalizer::nfc().normalize(&*nfd1);
+        let nfd1 = simd_normalizer::nfd().normalize(&nfc1);
+        let nfc2 = simd_normalizer::nfc().normalize(&nfd1);
         assert_eq!(
             &*nfc1, &*nfc2,
             "NFC->NFD->NFC roundtrip unstable for {:?}",

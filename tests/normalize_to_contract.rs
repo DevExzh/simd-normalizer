@@ -223,11 +223,11 @@ fn nfkd_normalize_to_empty_input_returns_true() {
 #[test]
 fn nfc_normalize_to_large_ascii_matches_normalize() {
     let n = NfcNormalizer::new();
-    let input: String = "a".repeat(2048);
+    let input: String = "a".repeat(2048); // ≥ 1 KiB ASCII
     let mut buf = String::new();
     let already = n.normalize_to(&input, &mut buf);
     assert!(already);
-    assert_eq!(buf, input);
+    assert_eq!(buf, &*n.normalize(&input));
 }
 
 #[test]

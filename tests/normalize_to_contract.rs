@@ -159,6 +159,24 @@ fn nfd_normalize_to_repeated_calls_concatenate() {
     assert_eq!(buf, "A\u{030A}O\u{0308}");
 }
 
+#[test]
+fn nfkc_normalize_to_repeated_calls_concatenate() {
+    let n = NfkcNormalizer::new();
+    let mut buf = String::new();
+    n.normalize_to("\u{FB01}", &mut buf); // ﬁ → fi
+    n.normalize_to("\u{FB02}", &mut buf); // ﬂ → fl
+    assert_eq!(buf, "fifl");
+}
+
+#[test]
+fn nfkd_normalize_to_repeated_calls_concatenate() {
+    let n = NfkdNormalizer::new();
+    let mut buf = String::new();
+    n.normalize_to("\u{FB01}", &mut buf);
+    n.normalize_to("\u{FB02}", &mut buf);
+    assert_eq!(buf, "fifl");
+}
+
 // ---------------------------------------------------------------------------
 // Empty input: returns true, buf unchanged
 // ---------------------------------------------------------------------------

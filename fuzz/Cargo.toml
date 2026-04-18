@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 simd-normalizer = { path = ".." }
+unicode-normalization = "0.1"
 
 [[bin]]
 name = "fuzz_nfc"
@@ -56,6 +57,20 @@ bench = false
 [[bin]]
 name = "fuzz_confusable"
 path = "fuzz_targets/fuzz_confusable.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_cross_form"
+path = "fuzz_targets/fuzz_cross_form.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_differential"
+path = "fuzz_targets/fuzz_differential.rs"
 test = false
 doc = false
 bench = false

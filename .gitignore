@@ -1,3 +1,6 @@
 /target
 /scripts/ucd_cache/
 /3rdparty/
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts

@@ -13,6 +13,7 @@ fuzz_target!(|data: &str| {
     let re_normalized = n.normalize(&normalized);
     assert_eq!(normalized, re_normalized, "NFC not idempotent");
     let _ = n.quick_check(data);
+    let _ = n.is_normalized(data);
     let _ = data.nfc();
     let _ = data.is_nfc();
 });

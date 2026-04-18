@@ -13,6 +13,7 @@ fuzz_target!(|data: &str| {
     let re_normalized = n.normalize(&normalized);
     assert_eq!(normalized, re_normalized, "NFKD not idempotent");
     let _ = n.quick_check(data);
+    let _ = n.is_normalized(data);
     let _ = data.nfkd();
     let _ = data.is_nfkd();
 });

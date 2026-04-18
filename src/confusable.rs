@@ -32,7 +32,11 @@ fn confusable_map_char(c: char, out: &mut String) {
 
 /// Compute the UTS #39 skeleton of a string.
 ///
-/// The skeleton algorithm: `NFD(confusable_map(NFD(input)))`.
+/// The skeleton algorithm: `NFD(confusable_map(NFD(input)))`, iterated
+/// to a fixed point. Iteration is required because some confusable
+/// expansions produce characters that themselves have confusable
+/// mappings; UTS #39 specifies that `skeleton(skeleton(X)) = skeleton(X)`,
+/// so we converge before returning.
 ///
 /// Two strings are confusable (visually similar) if and only if
 /// `skeleton(a) == skeleton(b)`.
@@ -41,18 +45,23 @@ pub fn skeleton(input: &str) -> String {
         return String::new();
     }
 
-    // Step 1: NFD(input)
-    let nfd = crate::nfd().normalize(input);
+    // Start from NFD(input); subsequent passes operate on the previous output.
+    let mut current: String = crate::nfd().normalize(input).into_owned();
 
-    // Step 2: Apply confusable mapping to each character.
-    let mut mapped = String::with_capacity(nfd.len());
-    for ch in nfd.chars() {
-        confusable_map_char(ch, &mut mapped);
+    // Apply confusable_map + NFD until a fixed point. A small iteration
+    // cap guards against pathological inputs; in practice 1–2 passes suffice.
+    for _ in 0..8 {
+        let mut mapped = String::with_capacity(current.len());
+        for ch in current.chars() {
+            confusable_map_char(ch, &mut mapped);
+        }
+        let next = crate::nfd().normalize(&mapped).into_owned();
+        if next == current {
+            return next;
+        }
+        current = next;
     }
-
-    // Step 3: NFD(mapped)
-    let result = crate::nfd().normalize(&mapped);
-    result.into_owned()
+    current
 }
 
 /// Check whether two strings are confusable (have the same skeleton).
@@ -109,15 +118,22 @@ mod tests {
 
     #[test]
     fn skeleton_convergence() {
-        // Applying skeleton twice should converge (reach a fixed point).
-        // A single application is not guaranteed to be idempotent per UTS #39,
-        // since composite confusable mappings may expand into parts that have
-        // their own confusable mappings.
+        // UTS #39 requires skeleton(skeleton(X)) == skeleton(X).
         let input = "Hel\u{0430}"; // mix of Latin and Cyrillic
         let s1 = skeleton(input);
         let s2 = skeleton(&s1);
-        let s3 = skeleton(&s2);
-        assert_eq!(s2, s3, "skeleton should converge after two passes");
+        assert_eq!(s1, s2, "skeleton must be idempotent");
+    }
+
+    #[test]
+    fn skeleton_idempotent_on_cascading_mapping() {
+        // Regression for fuzzer-found case where the confusable table maps
+        // U+1D0E (ᴎ) through multiple hops; a single NFD→map→NFD pass was
+        // not a fixed point. Skeleton must converge regardless.
+        let input = "\u{1D0E}\u{326}\u{306}";
+        let s1 = skeleton(input);
+        let s2 = skeleton(&s1);
+        assert_eq!(s1, s2, "skeleton must be idempotent for cascading maps");
     }
 
     #[test]

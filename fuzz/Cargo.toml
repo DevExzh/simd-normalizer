@@ -39,6 +39,27 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "fuzz_matching"
+path = "fuzz_targets/fuzz_matching.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_casefold"
+path = "fuzz_targets/fuzz_casefold.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_confusable"
+path = "fuzz_targets/fuzz_confusable.rs"
+test = false
+doc = false
+bench = false
+
 # Work around https://github.com/rust-lang/cargo/issues/8338
 # Keeps this crate out of the parent workspace so parent `cargo build`
 # is unaffected and the fuzz crate's std-using deps don't leak in.

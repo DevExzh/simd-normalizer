@@ -33,10 +33,10 @@ const CCC_MASK: u32 = 0xFF << CCC_SHIFT;
 /// Mask for the 16-bit decomposition info field.
 const DECOMP_INFO_MASK: u32 = 0xFFFF;
 
-/// Set iff the codepoint (a) has CCC > 0, AND (b) has at least one composition
-/// partner in the ASCII starter range U+0000..U+007F. Used by the compose-mode
-/// passthrough fast path to decide whether the final byte of a passthrough run
-/// must be fed through NormState as a potential starter.
+/// Set iff the codepoint has CCC > 0 (i.e. is any combining mark). Used by the
+/// compose-mode passthrough fast path to decide whether the final byte of a
+/// passthrough run must be fed through NormState as a potential starter.
+/// See `needs_starter_shadow` for why the narrower ASCII-composer rule is unsound.
 pub(crate) const NEEDS_STARTER_SHADOW: u32 = 1 << 28;
 
 // ---------------------------------------------------------------------------

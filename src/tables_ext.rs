@@ -9,6 +9,14 @@ pub fn raw_decomp_trie_value_canonical(ch: char) -> u32 {
     crate::tables::raw_decomp_trie_value(ch, DecompForm::Canonical)
 }
 
+/// Raw trie value for a supplementary-plane code point's canonical decomposition
+/// entry. `cp` must be in the range `0x10000..=0x10FFFF`.
+pub fn raw_decomp_trie_value_supp_canonical(cp: u32) -> u32 {
+    debug_assert!((0x10000..=0x10FFFF).contains(&cp));
+    // Safety: caller-documented precondition that `cp` is supplementary.
+    unsafe { crate::tables::raw_decomp_trie_value_supplementary(cp, DecompForm::Canonical) }
+}
+
 /// The new packed bit; set iff the codepoint needs a starter-shadow in compose mode.
 pub fn needs_starter_shadow_bit(tv: u32) -> bool {
     crate::tables::needs_starter_shadow(tv)

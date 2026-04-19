@@ -401,6 +401,39 @@ fn process_from_trie_nfd(
     state.feed_entry_nfd(decomposed, ccc, out);
 }
 
+/// Compose-mode passthrough flush. Called from both the chunk loop and scalar
+/// tail after `state.flush(out, true)` when `composes == true`. Peeks at the
+/// upcoming codepoint `ch` (whose bytes have not yet been consumed) and decides
+/// whether to copy the whole `pass` run verbatim or feed the final ASCII
+/// starter through `NormState` so subsequent combining marks can still see it.
+#[inline(always)]
+fn flush_compose_passthrough(
+    pass: &str,
+    ch: char,
+    form: Form,
+    state: &mut NormState,
+    out: &mut String,
+) {
+    let cp = ch as u32;
+    // Safety: `cp >= 0x10000` proves `ch` is a supplementary code point, which
+    // is the precondition of `raw_decomp_trie_value_supplementary`.
+    let next_tv = if cp >= 0x10000 {
+        unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
+    } else {
+        tables::raw_decomp_trie_value(ch, form.decomp_form())
+    };
+    if tables::needs_starter_shadow(next_tv) {
+        let n = pass.len();
+        if n > 1 {
+            out.push_str(&pass[..n - 1]);
+        }
+        let last_ch = pass.as_bytes()[n - 1] as char;
+        state.feed_entry(last_ch, 0, out, true);
+    } else {
+        out.push_str(pass);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // normalize_scalar -- fallback for short inputs
 // ---------------------------------------------------------------------------
@@ -584,22 +617,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 state.flush(&mut out, composes);
                 let pass = &input[last_written..byte_pos];
                 if composes {
-                    let cp = ch as u32;
-                    let next_tv = if cp >= 0x10000 {
-                        unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
-                    } else {
-                        tables::raw_decomp_trie_value(ch, form.decomp_form())
-                    };
-                    if tables::needs_starter_shadow(next_tv) {
-                        let n = pass.len();
-                        if n > 1 {
-                            out.push_str(&pass[..n - 1]);
-                        }
-                        let last_ch = pass.as_bytes()[n - 1] as char;
-                        state.feed_entry(last_ch, 0, &mut out, true);
-                    } else {
-                        out.push_str(pass);
-                    }
+                    flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
                 } else {
                     out.push_str(pass);
                 }
@@ -687,24 +705,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                     state.flush(&mut out, composes);
                     let pass = &input[last_written..tail_pos];
                     if composes {
-                        let cp = ch as u32;
-                        let next_tv = if cp >= 0x10000 {
-                            unsafe {
-                                tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form())
-                            }
-                        } else {
-                            tables::raw_decomp_trie_value(ch, form.decomp_form())
-                        };
-                        if tables::needs_starter_shadow(next_tv) {
-                            let n = pass.len();
-                            if n > 1 {
-                                out.push_str(&pass[..n - 1]);
-                            }
-                            let last_ch = pass.as_bytes()[n - 1] as char;
-                            state.feed_entry(last_ch, 0, &mut out, true);
-                        } else {
-                            out.push_str(pass);
-                        }
+                        flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
                     } else {
                         out.push_str(pass);
                     }

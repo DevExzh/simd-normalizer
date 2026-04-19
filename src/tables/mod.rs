@@ -186,8 +186,15 @@ pub(crate) fn has_decomposition(trie_value: u32) -> bool {
 }
 
 /// Check whether the passthrough fast path must feed this codepoint through
-/// NormState as a potential starter. Only true when CCC>0 AND the codepoint
-/// has an ASCII-starter composition partner.
+/// NormState as a potential starter. The bit is set iff CCC>0 — i.e. the
+/// codepoint is any combining mark. This conservatively preserves the
+/// preceding starter across any combining-mark run.
+///
+/// Note: the narrower rule "CCC>0 AND has an ASCII-starter composition
+/// partner" is unsound under canonical reorder: a later combining mark that
+/// *does* compose with the starter can be reordered ahead of a non-composing
+/// mark in front of it, so we cannot skip feeding *any* CCC>0 codepoint into
+/// NormState without losing the starter context.
 #[inline(always)]
 pub(crate) fn needs_starter_shadow(trie_value: u32) -> bool {
     trie_value & NEEDS_STARTER_SHADOW != 0

@@ -958,19 +958,20 @@ def main():
     print(f"  Composition pairs: {len(composition_pairs)}")
     print()
 
-    # Compute NEEDS_STARTER_SHADOW set: codepoints that have CCC>0. The compose
-    # mode passthrough tail must feed its final starter into NormState whenever
-    # the next codepoint is a combining mark, because that combining mark (or
-    # a later one reordered before it) may still compose with the starter.
-    # When the next codepoint is itself a starter (CCC=0) no composition or
-    # reordering can happen, so the whole passthrough run can be written as-is.
-    ascii_composition_partners = set(cp for cp in ccc_map if ccc_map[cp] > 0)
-    print(f"  Shadow-bit codepoints (CCC>0): {len(ascii_composition_partners)}")
+    # Compute NEEDS_STARTER_SHADOW set: codepoints that have CCC>0 (i.e. any
+    # combining mark). The compose mode passthrough tail must feed its final
+    # starter into NormState whenever the next codepoint is a combining mark,
+    # because that combining mark (or a later one reordered before it) may
+    # still compose with the starter. When the next codepoint is itself a
+    # starter (CCC=0) no composition or reordering can happen, so the whole
+    # passthrough run can be written as-is.
+    shadow_codepoints = set(cp for cp in ccc_map if ccc_map[cp] > 0)
+    print(f"  Shadow-bit codepoints (CCC>0): {len(shadow_codepoints)}")
 
     print("Step 7: Building canonical decomposition trie...")
     canon_trie_builder, canon_expansions = build_decomp_trie(
         full_canon, ccc_map, qc_props, "NFC_QC",
-        shadow_partners=ascii_composition_partners,
+        shadow_partners=shadow_codepoints,
     )
     canon_bmp_idx, canon_data, canon_s1, canon_s2 = canon_trie_builder.build()
     print(f"  Canonical trie: data={len(canon_data)}, expansions={len(canon_expansions)}")
@@ -978,7 +979,7 @@ def main():
     print("Step 8: Building compatibility decomposition trie...")
     compat_trie_builder, compat_expansions = build_decomp_trie(
         full_compat, ccc_map, qc_props, "NFKC_QC",
-        shadow_partners=ascii_composition_partners,
+        shadow_partners=shadow_codepoints,
     )
     compat_bmp_idx, compat_data, compat_s1, compat_s2 = compat_trie_builder.build()
     print(f"  Compat trie: data={len(compat_data)}, expansions={len(compat_expansions)}")

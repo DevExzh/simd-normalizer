@@ -406,8 +406,12 @@ fn known_confusable_pairs_expanded() {
 
 #[test]
 fn needs_starter_shadow_matches_legacy_rule() {
-    // For every BMP codepoint, the new bit must equal the legacy predicate:
-    //   ccc(ch) > 0 AND there exists some ASCII starter that composes with ch.
+    // For every BMP codepoint, the new bit must equal the reference predicate:
+    //   ccc(ch) > 0.
+    // The bit is set for every combining mark; this conservatively preserves
+    // the preceding starter across any combining-mark run (see
+    // `tables::needs_starter_shadow` for why the narrower ASCII-composer rule
+    // is unsound under canonical reorder).
     use simd_normalizer::tables_ext as te;
 
     for cp in 0u32..=0xFFFF {

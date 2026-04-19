@@ -35,6 +35,8 @@ pub use confusable::{are_confusable, skeleton};
 pub use matching::{
     MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
 };
+#[cfg(any(test, feature = "internal-test-api"))]
+pub use matching::normalize_for_matching_legacy;
 pub use normalizer::{NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer};
 pub use quick_check::IsNormalized;
 

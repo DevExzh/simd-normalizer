@@ -61,14 +61,9 @@ pub fn normalize_for_matching(input: &str, opts: &MatchingOptions) -> String {
         return String::new();
     }
 
-    // Run the full pipeline: NFKC → casefold → skeleton → casefold.
-    // Iterate until the output converges, because each step can introduce
-    // characters that need further processing by a different step:
-    //   - Confusable mappings can introduce compatibility chars (e.g., % → º/₀)
-    //     that need another NFKC pass
-    //   - NFKC can introduce characters with confusable mappings (e.g., ₀ → 0 → O)
-    //   - Confusable mappings can introduce uppercase (e.g., 0 → O) that needs casefold
-    // In practice, convergence is reached in 2–3 iterations.
+    // Iterate the full pipeline to a fixed point. Each `one_pass` is a
+    // NFKC → casefold → skeleton → casefold chain; convergence typically
+    // occurs in 1–2 outer iterations.
     let mut current = one_pass(input, opts);
     for _ in 0..3 {
         let next = one_pass(&current, opts);
@@ -80,8 +75,47 @@ pub fn normalize_for_matching(input: &str, opts: &MatchingOptions) -> String {
     current
 }
 
-/// Single pass of the matching pipeline.
+/// Single pass of the matching pipeline: NFKC → casefold → skeleton → casefold.
+///
+/// Retained as the pre-Task-4 chain after the per-codepoint fusion was
+/// abandoned. The fused pipeline (Step 4.5 of the 2026-04-19 perf plan)
+/// violated parity because legacy's `NFKC` canonically composes before
+/// casefold, hiding code points like U+0345 (COMBINING GREEK YPOGEGRAMMENI)
+/// inside precomposed starters (e.g. U+1F80 `ᾀ`). A per-char fused pipeline
+/// decomposes first and casefolds the exposed combining mark (→ U+03B9),
+/// producing a different skeleton. Restoring the legacy ordering keeps
+/// parity; `normalize_for_matching_legacy` and `tests/perf_regression.rs`
+/// remain as regression infrastructure for any future fusion attempt.
 fn one_pass(input: &str, opts: &MatchingOptions) -> String {
+    let nfkc = crate::nfkc().normalize(input);
+    let folded = casefold::casefold(&nfkc, opts.case_fold);
+    let skel = confusable::skeleton(&folded);
+    let final_folded = casefold::casefold(&skel, opts.case_fold);
+    final_folded.into_owned()
+}
+
+/// Legacy pre-fusion implementation, preserved for parity testing against the
+/// fused pipeline. Identical in behavior to the `normalize_for_matching`
+/// implementation that existed prior to Task 4 of the 2026-04-19 perf plan.
+#[cfg(any(test, feature = "internal-test-api"))]
+pub fn normalize_for_matching_legacy(input: &str, opts: &MatchingOptions) -> String {
+    if input.is_empty() {
+        return String::new();
+    }
+    let mut current = one_pass_legacy(input, opts);
+    for _ in 0..3 {
+        let next = one_pass_legacy(&current, opts);
+        if next == current {
+            return current;
+        }
+        current = next;
+    }
+    current
+}
+
+/// Single legacy pass: NFKC → casefold → skeleton → casefold.
+#[cfg(any(test, feature = "internal-test-api"))]
+fn one_pass_legacy(input: &str, opts: &MatchingOptions) -> String {
     let nfkc = crate::nfkc().normalize(input);
     let folded = casefold::casefold(&nfkc, opts.case_fold);
     let skel = confusable::skeleton(&folded);

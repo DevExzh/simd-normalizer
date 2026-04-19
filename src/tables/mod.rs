@@ -33,6 +33,12 @@ const CCC_MASK: u32 = 0xFF << CCC_SHIFT;
 /// Mask for the 16-bit decomposition info field.
 const DECOMP_INFO_MASK: u32 = 0xFFFF;
 
+/// Set iff the codepoint (a) has CCC > 0, AND (b) has at least one composition
+/// partner in the ASCII starter range U+0000..U+007F. Used by the compose-mode
+/// passthrough fast path to decide whether the final byte of a passthrough run
+/// must be fed through NormState as a potential starter.
+pub(crate) const NEEDS_STARTER_SHADOW: u32 = 1 << 28;
+
 // ---------------------------------------------------------------------------
 // Expansion entry format: (ccc << 21) | code_point
 // ---------------------------------------------------------------------------
@@ -177,6 +183,14 @@ pub(crate) fn ccc_from_trie_value(v: u32) -> u8 {
 #[inline(always)]
 pub(crate) fn has_decomposition(trie_value: u32) -> bool {
     trie_value & HAS_DECOMPOSITION != 0
+}
+
+/// Check whether the passthrough fast path must feed this codepoint through
+/// NormState as a potential starter. Only true when CCC>0 AND the codepoint
+/// has an ASCII-starter composition partner.
+#[inline(always)]
+pub(crate) fn needs_starter_shadow(trie_value: u32) -> bool {
+    trie_value & NEEDS_STARTER_SHADOW != 0
 }
 
 /// Look up the raw decomposition trie value for a character.
@@ -719,5 +733,11 @@ mod tests {
         assert_eq!(HAS_DECOMPOSITION & IS_EXPANSION, 0);
         assert_eq!(IS_EXPANSION & CCC_MASK, 0);
         assert_eq!(CCC_MASK & DECOMP_INFO_MASK, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & BACKWARD_COMBINING, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & NON_ROUND_TRIP, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & HAS_DECOMPOSITION, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & IS_EXPANSION, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & CCC_MASK, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & DECOMP_INFO_MASK, 0);
     }
 }

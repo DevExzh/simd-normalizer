@@ -583,13 +583,23 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             if byte_pos > last_written {
                 state.flush(&mut out, composes);
                 let pass = &input[last_written..byte_pos];
-                let n = pass.len();
                 if composes {
-                    if n > 1 {
-                        out.push_str(&pass[..n - 1]);
+                    let cp = ch as u32;
+                    let next_tv = if cp >= 0x10000 {
+                        unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
+                    } else {
+                        tables::raw_decomp_trie_value(ch, form.decomp_form())
+                    };
+                    if tables::needs_starter_shadow(next_tv) {
+                        let n = pass.len();
+                        if n > 1 {
+                            out.push_str(&pass[..n - 1]);
+                        }
+                        let last_ch = pass.as_bytes()[n - 1] as char;
+                        state.feed_entry(last_ch, 0, &mut out, true);
+                    } else {
+                        out.push_str(pass);
                     }
-                    let last_ch = pass.as_bytes()[n - 1] as char;
-                    state.feed_entry(last_ch, 0, &mut out, true);
                 } else {
                     out.push_str(pass);
                 }
@@ -676,13 +686,25 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 if tail_pos > last_written {
                     state.flush(&mut out, composes);
                     let pass = &input[last_written..tail_pos];
-                    let n = pass.len();
                     if composes {
-                        if n > 1 {
-                            out.push_str(&pass[..n - 1]);
+                        let cp = ch as u32;
+                        let next_tv = if cp >= 0x10000 {
+                            unsafe {
+                                tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form())
+                            }
+                        } else {
+                            tables::raw_decomp_trie_value(ch, form.decomp_form())
+                        };
+                        if tables::needs_starter_shadow(next_tv) {
+                            let n = pass.len();
+                            if n > 1 {
+                                out.push_str(&pass[..n - 1]);
+                            }
+                            let last_ch = pass.as_bytes()[n - 1] as char;
+                            state.feed_entry(last_ch, 0, &mut out, true);
+                        } else {
+                            out.push_str(pass);
                         }
-                        let last_ch = pass.as_bytes()[n - 1] as char;
-                        state.feed_entry(last_ch, 0, &mut out, true);
                     } else {
                         out.push_str(pass);
                     }

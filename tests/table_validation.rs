@@ -403,3 +403,19 @@ fn known_confusable_pairs_expanded() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn needs_starter_shadow_matches_legacy_rule() {
+    // For every BMP codepoint, the new bit must equal the legacy predicate:
+    //   ccc(ch) > 0 AND there exists some ASCII starter that composes with ch.
+    use simd_normalizer::tables_ext as te;
+
+    for cp in 0u32..=0xFFFF {
+        if (0xD800..=0xDFFF).contains(&cp) { continue; }
+        let ch = char::from_u32(cp).unwrap();
+        let tv = te::raw_decomp_trie_value_canonical(ch);
+        let fused = te::needs_starter_shadow_bit(tv);
+        let legacy = te::legacy_needs_starter_shadow(ch);
+        assert_eq!(fused, legacy, "cp=U+{:04X}: fused={} legacy={}", cp, fused, legacy);
+    }
+}

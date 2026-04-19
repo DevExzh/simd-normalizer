@@ -12,6 +12,9 @@ categories = ["text-processing", "no-std"]
 default = ["std"]
 std = ["alloc"]
 alloc = []
+# Re-exports crate-private table accessors for integration tests. Not for
+# downstream use; semver-exempt; may change or disappear without warning.
+internal-test-api = []
 
 [dev-dependencies]
 proptest = "1"
@@ -19,6 +22,7 @@ unicode-normalization = "0.1"
 icu_normalizer = "2.2"
 simdutf8 = "0.1"
 criterion = { version = "0.5", features = ["html_reports"] }
+simd-normalizer = { path = ".", features = ["internal-test-api"] }
 
 [[bench]]
 name = "bench"

@@ -27,6 +27,9 @@ pub(crate) mod simd;
 mod tables;
 mod utf8;
 
+#[cfg(any(test, feature = "internal-test-api"))]
+pub mod tables_ext;
+
 pub use casefold::{CaseFoldMode, casefold, casefold_char};
 pub use confusable::{are_confusable, skeleton};
 pub use matching::{

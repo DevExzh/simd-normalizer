@@ -502,6 +502,21 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     let ptr = bytes.as_ptr();
 
     // SIMD chunk loop.
+    //
+    // µop count: ~24/28, LSD eligible on Zen 5 (manual inspection of `cargo
+    // asm` output, x86_64-unknown-linux-gnu, 2026-04-19 — pending tool-assisted
+    // count via llvm-mca).
+    //
+    // Task 3a (2026-04-19) experimented with marking `process_char` and
+    // `process_from_trie_nfd` as `#[inline(never)]` to shrink the loop frame
+    // further. Criterion showed +5.2% NFC ASCII / +24.5% NFC Latin-1 but
+    // regressed NFD Latin-1 by -14.4% and NFD mixed by -6.1% (the outlined
+    // call replaces what LLVM had inlined as a ~15-µop fast path for the
+    // dense-combining-mark workload). The ≥5% win gate held but the ≤1%
+    // guard-regression gate did not, so the attribute was reverted. Leaving
+    // `#[inline]` on `process_char` and `#[inline(always)]` on
+    // `process_from_trie_nfd` as before — this comment stays as a record of
+    // the measurement + rationale.
     while pos + 64 <= len {
         let chunk_start = pos;
 

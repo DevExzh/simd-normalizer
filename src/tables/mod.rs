@@ -33,6 +33,12 @@ const CCC_MASK: u32 = 0xFF << CCC_SHIFT;
 /// Mask for the 16-bit decomposition info field.
 const DECOMP_INFO_MASK: u32 = 0xFFFF;
 
+/// Set iff the codepoint has CCC > 0 (i.e. is any combining mark). Used by the
+/// compose-mode passthrough fast path to decide whether the final byte of a
+/// passthrough run must be fed through NormState as a potential starter.
+/// See `needs_starter_shadow` for why the narrower ASCII-composer rule is unsound.
+pub(crate) const NEEDS_STARTER_SHADOW: u32 = 1 << 28;
+
 // ---------------------------------------------------------------------------
 // Expansion entry format: (ccc << 21) | code_point
 // ---------------------------------------------------------------------------
@@ -179,6 +185,21 @@ pub(crate) fn has_decomposition(trie_value: u32) -> bool {
     trie_value & HAS_DECOMPOSITION != 0
 }
 
+/// Check whether the passthrough fast path must feed this codepoint through
+/// NormState as a potential starter. The bit is set iff CCC>0 — i.e. the
+/// codepoint is any combining mark. This conservatively preserves the
+/// preceding starter across any combining-mark run.
+///
+/// Note: the narrower rule "CCC>0 AND has an ASCII-starter composition
+/// partner" is unsound under canonical reorder: a later combining mark that
+/// *does* compose with the starter can be reordered ahead of a non-composing
+/// mark in front of it, so we cannot skip feeding *any* CCC>0 codepoint into
+/// NormState without losing the starter context.
+#[inline(always)]
+pub(crate) fn needs_starter_shadow(trie_value: u32) -> bool {
+    trie_value & NEEDS_STARTER_SHADOW != 0
+}
+
 /// Look up the raw decomposition trie value for a character.
 #[inline]
 pub(crate) fn raw_decomp_trie_value(c: char, form: crate::decompose::DecompForm) -> u32 {
@@ -205,6 +226,33 @@ pub(crate) unsafe fn raw_decomp_trie_value_supplementary(
             compat_trie().get_supplementary_unchecked(cp)
         },
     }
+}
+
+/// Pipelined 2-codepoint decomposition trie lookup (BMP only).
+///
+/// Both code points must be BMP (< 0x10000). Supplementary codepoints must
+/// go through `raw_decomp_trie_value_supplementary` individually. The result
+/// is bit-identical to two serial `raw_decomp_trie_value` calls, but the two
+/// dependent loads overlap so the out-of-order engine can hide an L2 miss.
+#[allow(dead_code)] // retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
+#[inline(always)]
+pub(crate) fn raw_decomp_trie_values_pipelined<const N: usize>(
+    cps: &[u32; N],
+    form: crate::decompose::DecompForm,
+) -> [u32; N] {
+    debug_assert!(N == 2, "only 2-way pipelining is implemented");
+    debug_assert!(cps[0] < 0x10000 && cps[1] < 0x10000);
+    let trie = match form {
+        crate::decompose::DecompForm::Canonical => canonical_trie(),
+        crate::decompose::DecompForm::Compatible => compat_trie(),
+    };
+    // SAFETY: debug_assert above guarantees both cps are BMP; generated tries
+    // are well-formed so `get_two_bmp_pipelined_unchecked`'s safety holds.
+    let pair = unsafe { trie.get_two_bmp_pipelined_unchecked(cps[0], cps[1]) };
+    let mut out = [0u32; N];
+    out[0] = pair[0];
+    out[1] = pair[1];
+    out
 }
 
 /// Decode a decomposition trie value into (DecompResult, CCC).
@@ -719,5 +767,33 @@ mod tests {
         assert_eq!(HAS_DECOMPOSITION & IS_EXPANSION, 0);
         assert_eq!(IS_EXPANSION & CCC_MASK, 0);
         assert_eq!(CCC_MASK & DECOMP_INFO_MASK, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & BACKWARD_COMBINING, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & NON_ROUND_TRIP, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & HAS_DECOMPOSITION, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & IS_EXPANSION, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & CCC_MASK, 0);
+        assert_eq!(NEEDS_STARTER_SHADOW & DECOMP_INFO_MASK, 0);
+    }
+
+    #[test]
+    fn pipelined_trie_walk_matches_serial() {
+        use crate::decompose::DecompForm;
+        for cp0 in (0u32..=0xFFFE).step_by(2) {
+            let cp1 = cp0 + 1;
+            if (0xD800..=0xDFFF).contains(&cp0) || (0xD800..=0xDFFF).contains(&cp1) {
+                continue;
+            }
+            let ch0 = char::from_u32(cp0).unwrap();
+            let ch1 = char::from_u32(cp1).unwrap();
+            let serial = [
+                raw_decomp_trie_value(ch0, DecompForm::Canonical),
+                raw_decomp_trie_value(ch1, DecompForm::Canonical),
+            ];
+            let pipelined = raw_decomp_trie_values_pipelined::<2>(
+                &[cp0, cp1],
+                DecompForm::Canonical,
+            );
+            assert_eq!(pipelined, serial, "mismatch at cp=U+{:04X}", cp0);
+        }
     }
 }

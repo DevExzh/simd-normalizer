@@ -403,3 +403,28 @@ fn known_confusable_pairs_expanded() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn needs_starter_shadow_matches_legacy_rule() {
+    // For every scalar-value codepoint (BMP + supplementary, skipping surrogates),
+    // the new bit must equal the reference predicate:
+    //   ccc(ch) > 0.
+    // The bit is set for every combining mark; this conservatively preserves
+    // the preceding starter across any combining-mark run (see
+    // `tables::needs_starter_shadow` for why the narrower ASCII-composer rule
+    // is unsound under canonical reorder).
+    use simd_normalizer::tables_ext as te;
+
+    for cp in 0u32..=0x10FFFF {
+        if (0xD800..=0xDFFF).contains(&cp) { continue; }
+        let ch = char::from_u32(cp).unwrap();
+        let tv = if cp >= 0x10000 {
+            te::raw_decomp_trie_value_supp_canonical(cp)
+        } else {
+            te::raw_decomp_trie_value_canonical(ch)
+        };
+        let fused = te::needs_starter_shadow_bit(tv);
+        let legacy = te::legacy_needs_starter_shadow(ch);
+        assert_eq!(fused, legacy, "cp=U+{:04X}: fused={} legacy={}", cp, fused, legacy);
+    }
+}

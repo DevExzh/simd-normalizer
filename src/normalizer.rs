@@ -401,6 +401,39 @@ fn process_from_trie_nfd(
     state.feed_entry_nfd(decomposed, ccc, out);
 }
 
+/// Compose-mode passthrough flush. Called from both the chunk loop and scalar
+/// tail after `state.flush(out, true)` when `composes == true`. Peeks at the
+/// upcoming codepoint `ch` (whose bytes have not yet been consumed) and decides
+/// whether to copy the whole `pass` run verbatim or feed the final ASCII
+/// starter through `NormState` so subsequent combining marks can still see it.
+#[inline(always)]
+fn flush_compose_passthrough(
+    pass: &str,
+    ch: char,
+    form: Form,
+    state: &mut NormState,
+    out: &mut String,
+) {
+    let cp = ch as u32;
+    // Safety: `cp >= 0x10000` proves `ch` is a supplementary code point, which
+    // is the precondition of `raw_decomp_trie_value_supplementary`.
+    let next_tv = if cp >= 0x10000 {
+        unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
+    } else {
+        tables::raw_decomp_trie_value(ch, form.decomp_form())
+    };
+    if tables::needs_starter_shadow(next_tv) {
+        let n = pass.len();
+        if n > 1 {
+            out.push_str(&pass[..n - 1]);
+        }
+        let last_ch = pass.as_bytes()[n - 1] as char;
+        state.feed_entry(last_ch, 0, out, true);
+    } else {
+        out.push_str(pass);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // normalize_scalar -- fallback for short inputs
 // ---------------------------------------------------------------------------
@@ -469,6 +502,21 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     let ptr = bytes.as_ptr();
 
     // SIMD chunk loop.
+    //
+    // µop count: ~24/28, LSD eligible on Zen 5 (manual inspection of `cargo
+    // asm` output, x86_64-unknown-linux-gnu, 2026-04-19 — pending tool-assisted
+    // count via llvm-mca).
+    //
+    // Task 3a (2026-04-19) experimented with marking `process_char` and
+    // `process_from_trie_nfd` as `#[inline(never)]` to shrink the loop frame
+    // further. Criterion showed +5.2% NFC ASCII / +24.5% NFC Latin-1 but
+    // regressed NFD Latin-1 by -14.4% and NFD mixed by -6.1% (the outlined
+    // call replaces what LLVM had inlined as a ~15-µop fast path for the
+    // dense-combining-mark workload). The ≥5% win gate held but the ≤1%
+    // guard-regression gate did not, so the attribute was reverted. Leaving
+    // `#[inline]` on `process_char` and `#[inline(always)]` on
+    // `process_from_trie_nfd` as before — this comment stays as a record of
+    // the measurement + rationale.
     while pos + 64 <= len {
         let chunk_start = pos;
 
@@ -482,6 +530,18 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 ptr.wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
             simd::scan_and_prefetch(ptr.add(pos), prefetch_l1, prefetch_l2, bound)
         };
+
+        // Prefetch the output buffer write-head to overlap write-allocate
+        // fills with the SIMD scanner read on the source. Guarded against the
+        // reallocation boundary: if the prefetched line would land past the
+        // current capacity, skip it (the next push_str will realloc anyway).
+        unsafe {
+            let write_head = out.len();
+            let distance = prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE;
+            if write_head + distance <= out.capacity() {
+                prefetch::prefetch_write(out.as_ptr().wrapping_add(write_head + distance));
+            }
+        }
 
         if mask == 0 {
             // All passthrough: no bytes >= bound in this chunk.
@@ -571,13 +631,8 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             if byte_pos > last_written {
                 state.flush(&mut out, composes);
                 let pass = &input[last_written..byte_pos];
-                let n = pass.len();
                 if composes {
-                    if n > 1 {
-                        out.push_str(&pass[..n - 1]);
-                    }
-                    let last_ch = pass.as_bytes()[n - 1] as char;
-                    state.feed_entry(last_ch, 0, &mut out, true);
+                    flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
                 } else {
                     out.push_str(pass);
                 }
@@ -664,13 +719,8 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 if tail_pos > last_written {
                     state.flush(&mut out, composes);
                     let pass = &input[last_written..tail_pos];
-                    let n = pass.len();
                     if composes {
-                        if n > 1 {
-                            out.push_str(&pass[..n - 1]);
-                        }
-                        let last_ch = pass.as_bytes()[n - 1] as char;
-                        state.feed_entry(last_ch, 0, &mut out, true);
+                        flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
                     } else {
                         out.push_str(pass);
                     }

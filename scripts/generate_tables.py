@@ -336,6 +336,7 @@ class TrieBuilder:
 BACKWARD_COMBINING = 1 << 31
 NON_ROUND_TRIP     = 1 << 30
 HAS_DECOMPOSITION  = 1 << 29
+NEEDS_STARTER_SHADOW = 1 << 28
 IS_EXPANSION       = 1 << 24
 CCC_SHIFT          = 16
 CCC_MASK           = 0xFF << CCC_SHIFT
@@ -378,13 +379,24 @@ def pack_expansion_decomp(offset, ccc=0, non_round_trip=False,
     )
 
 
-def build_decomp_trie(full_decomp, ccc_map, qc_props, qc_name_nrt):
+def build_decomp_trie(full_decomp, ccc_map, qc_props, qc_name_nrt,
+                      shadow_partners=None):
+    """Build a decomposition trie.
+
+    If `shadow_partners` is provided (canonical trie only), sets the
+    NEEDS_STARTER_SHADOW bit on entries whose cp has CCC>0 AND cp is in the set.
+    """
     trie = TrieBuilder()
     expansions = []
     expansion_index = {}
     nrt_set = set()
     if qc_name_nrt in qc_props:
         nrt_set = set(qc_props[qc_name_nrt].keys())
+
+    def maybe_add_shadow_bit(cp, trie_value, ccc):
+        if shadow_partners is not None and ccc > 0 and cp in shadow_partners:
+            return trie_value | NEEDS_STARTER_SHADOW
+        return trie_value
 
     for cp in range(0x110000):
         ccc = ccc_map.get(cp, 0)
@@ -423,6 +435,7 @@ def build_decomp_trie(full_decomp, ccc_map, qc_props, qc_name_nrt):
             value = pack_trie_value(non_round_trip=True)
         else:
             continue
+        value = maybe_add_shadow_bit(cp, value, ccc)
         trie.set(cp, value)
     return trie, expansions
 
@@ -945,16 +958,28 @@ def main():
     print(f"  Composition pairs: {len(composition_pairs)}")
     print()
 
+    # Compute NEEDS_STARTER_SHADOW set: codepoints that have CCC>0 (i.e. any
+    # combining mark). The compose mode passthrough tail must feed its final
+    # starter into NormState whenever the next codepoint is a combining mark,
+    # because that combining mark (or a later one reordered before it) may
+    # still compose with the starter. When the next codepoint is itself a
+    # starter (CCC=0) no composition or reordering can happen, so the whole
+    # passthrough run can be written as-is.
+    shadow_codepoints = set(cp for cp in ccc_map if ccc_map[cp] > 0)
+    print(f"  Shadow-bit codepoints (CCC>0): {len(shadow_codepoints)}")
+
     print("Step 7: Building canonical decomposition trie...")
     canon_trie_builder, canon_expansions = build_decomp_trie(
-        full_canon, ccc_map, qc_props, "NFC_QC"
+        full_canon, ccc_map, qc_props, "NFC_QC",
+        shadow_partners=shadow_codepoints,
     )
     canon_bmp_idx, canon_data, canon_s1, canon_s2 = canon_trie_builder.build()
     print(f"  Canonical trie: data={len(canon_data)}, expansions={len(canon_expansions)}")
 
     print("Step 8: Building compatibility decomposition trie...")
     compat_trie_builder, compat_expansions = build_decomp_trie(
-        full_compat, ccc_map, qc_props, "NFKC_QC"
+        full_compat, ccc_map, qc_props, "NFKC_QC",
+        shadow_partners=shadow_codepoints,
     )
     compat_bmp_idx, compat_data, compat_s1, compat_s2 = compat_trie_builder.build()
     print(f"  Compat trie: data={len(compat_data)}, expansions={len(compat_expansions)}")

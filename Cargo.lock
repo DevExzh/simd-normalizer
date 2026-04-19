@@ -797,6 +797,7 @@ dependencies = [
  "criterion",
  "icu_normalizer",
  "proptest",
+ "simd-normalizer",
  "simdutf8",
  "unicode-normalization",
 ]

@@ -483,6 +483,18 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             simd::scan_and_prefetch(ptr.add(pos), prefetch_l1, prefetch_l2, bound)
         };
 
+        // Prefetch the output buffer write-head to overlap write-allocate
+        // fills with the SIMD scanner read on the source. Guarded against the
+        // reallocation boundary: if the prefetched line would land past the
+        // current capacity, skip it (the next push_str will realloc anyway).
+        unsafe {
+            let write_head = out.len();
+            let distance = prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE;
+            if write_head + distance <= out.capacity() {
+                prefetch::prefetch_write(out.as_ptr().wrapping_add(write_head + distance));
+            }
+        }
+
         if mask == 0 {
             // All passthrough: no bytes >= bound in this chunk.
             pos += 64;

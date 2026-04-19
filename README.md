@@ -146,6 +146,18 @@ Arabic, Hangul, emoji, mixed-script, already-normalized, and worst-case)
 using [Criterion](https://github.com/bheisler/criterion.rs). Results are
 reported as bytes/second throughput.
 
+## Performance
+
+![Throughput by form and input type](media/throughput.png)
+
+Measured on an AMD Ryzen AI 9 HX PRO 370 (Zen 5, AVX2) with `rustc 1.95.0`
+on Linux x86_64, using the Criterion bench suite in `benches/bench.rs`.
+The SIMD scanner copies all-ASCII and passthrough chunks in bulk, so
+`simd-normalizer` pulls ahead dramatically on ASCII / Latin-1 / already-NFC
+inputs; on dense combining-mark or CJK inputs the per-codepoint scalar path
+dominates and throughput lands in the same order of magnitude as ICU4X.
+Regenerate the chart with `cargo bench && python3 scripts/plot_throughput.py`.
+
 ## License
 
 Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE) or

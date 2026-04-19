@@ -7,6 +7,9 @@
 const BMP_SHIFT: u32 = 5;
 /// Mask for the offset within a BMP block.
 const BMP_MASK: u32 = (1 << BMP_SHIFT) - 1; // 0x1F
+/// Number of data-array entries per BMP index block.
+#[allow(dead_code)]
+pub(crate) const BMP_BLOCK_SIZE: usize = 1 << BMP_SHIFT;
 
 /// Shift for supplementary index level 1 (top-level partitioning).
 const SUPP_SHIFT_1: u32 = 11;
@@ -71,6 +74,35 @@ impl CodePointTrie {
         let offset = (cp & BMP_MASK) as usize;
         let base = unsafe { *self.bmp_index.get_unchecked(block_idx) } as usize;
         unsafe { *self.data.get_unchecked(base + offset) }
+    }
+
+    /// Pipelined 2-codepoint BMP lookup: stage-1 load of cp1 is issued while
+    /// stage-2 of cp0 is in flight, letting the out-of-order engine hide one
+    /// L2 miss per pair. Bit-identical to two serial `get_bmp_unchecked` calls.
+    ///
+    /// # Safety
+    /// Both `cp0` and `cp1` must be `< 0x10000`, and the trie tables must be
+    /// well-formed (guaranteed for generated tables).
+    #[allow(dead_code)] // retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
+    #[inline(always)]
+    pub(crate) unsafe fn get_two_bmp_pipelined_unchecked(
+        &self,
+        cp0: u32,
+        cp1: u32,
+    ) -> [u32; 2] {
+        debug_assert!(cp0 < 0x10000 && cp1 < 0x10000);
+        let idx0 = (cp0 >> BMP_SHIFT) as usize;
+        let idx1 = (cp1 >> BMP_SHIFT) as usize;
+        let off0 = (cp0 & BMP_MASK) as usize;
+        let off1 = (cp1 & BMP_MASK) as usize;
+        // Issue both stage-1 loads back-to-back so they overlap.
+        let base0 = unsafe { *self.bmp_index.get_unchecked(idx0) } as usize;
+        let base1 = unsafe { *self.bmp_index.get_unchecked(idx1) } as usize;
+        // bmp_index stores absolute data offsets, so final index is base + offset
+        // (NOT base * BMP_BLOCK_SIZE + offset). Matches `get_bmp_unchecked`.
+        let v0 = unsafe { *self.data.get_unchecked(base0 + off0) };
+        let v1 = unsafe { *self.data.get_unchecked(base1 + off1) };
+        [v0, v1]
     }
 
     /// Supplementary lookup path (U+10000..U+10FFFF).

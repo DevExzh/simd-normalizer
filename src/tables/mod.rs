@@ -228,6 +228,33 @@ pub(crate) unsafe fn raw_decomp_trie_value_supplementary(
     }
 }
 
+/// Pipelined 2-codepoint decomposition trie lookup (BMP only).
+///
+/// Both code points must be BMP (< 0x10000). Supplementary codepoints must
+/// go through `raw_decomp_trie_value_supplementary` individually. The result
+/// is bit-identical to two serial `raw_decomp_trie_value` calls, but the two
+/// dependent loads overlap so the out-of-order engine can hide an L2 miss.
+#[allow(dead_code)] // retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
+#[inline(always)]
+pub(crate) fn raw_decomp_trie_values_pipelined<const N: usize>(
+    cps: &[u32; N],
+    form: crate::decompose::DecompForm,
+) -> [u32; N] {
+    debug_assert!(N == 2, "only 2-way pipelining is implemented");
+    debug_assert!(cps[0] < 0x10000 && cps[1] < 0x10000);
+    let trie = match form {
+        crate::decompose::DecompForm::Canonical => canonical_trie(),
+        crate::decompose::DecompForm::Compatible => compat_trie(),
+    };
+    // SAFETY: debug_assert above guarantees both cps are BMP; generated tries
+    // are well-formed so `get_two_bmp_pipelined_unchecked`'s safety holds.
+    let pair = unsafe { trie.get_two_bmp_pipelined_unchecked(cps[0], cps[1]) };
+    let mut out = [0u32; N];
+    out[0] = pair[0];
+    out[1] = pair[1];
+    out
+}
+
 /// Decode a decomposition trie value into (DecompResult, CCC).
 #[inline]
 pub(crate) fn decode_trie_value(
@@ -746,5 +773,27 @@ mod tests {
         assert_eq!(NEEDS_STARTER_SHADOW & IS_EXPANSION, 0);
         assert_eq!(NEEDS_STARTER_SHADOW & CCC_MASK, 0);
         assert_eq!(NEEDS_STARTER_SHADOW & DECOMP_INFO_MASK, 0);
+    }
+
+    #[test]
+    fn pipelined_trie_walk_matches_serial() {
+        use crate::decompose::DecompForm;
+        for cp0 in (0u32..=0xFFFE).step_by(2) {
+            let cp1 = cp0 + 1;
+            if (0xD800..=0xDFFF).contains(&cp0) || (0xD800..=0xDFFF).contains(&cp1) {
+                continue;
+            }
+            let ch0 = char::from_u32(cp0).unwrap();
+            let ch1 = char::from_u32(cp1).unwrap();
+            let serial = [
+                raw_decomp_trie_value(ch0, DecompForm::Canonical),
+                raw_decomp_trie_value(ch1, DecompForm::Canonical),
+            ];
+            let pipelined = raw_decomp_trie_values_pipelined::<2>(
+                &[cp0, cp1],
+                DecompForm::Canonical,
+            );
+            assert_eq!(pipelined, serial, "mismatch at cp=U+{:04X}", cp0);
+        }
     }
 }

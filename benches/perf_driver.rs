@@ -19,6 +19,72 @@ fn gen_cjk() -> String {
     s
 }
 
+fn gen_arabic() -> String {
+    let base = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ. الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ. ";
+    let mut s = String::new();
+    while s.len() < 10_000 {
+        s.push_str(base);
+    }
+    s.truncate(s.floor_char_boundary(10_000));
+    s
+}
+
+fn gen_hangul() -> String {
+    let base = "대한민국헌법은국민의자유와권리를보장하며국가의안전보장과질서유지를위하여필요한경우에한하여법률로써제한할수있다";
+    let mut s = String::new();
+    while s.len() < 10_000 {
+        s.push_str(base);
+    }
+    s.truncate(s.floor_char_boundary(10_000));
+    s
+}
+
+fn gen_emoji() -> String {
+    let emojis = [
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+        "\u{1F469}\u{200D}\u{1F4BB}",
+        "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}",
+        "\u{1F468}\u{1F3FB}\u{200D}\u{2695}\u{FE0F}",
+        "\u{1F1FA}\u{1F1F8}",
+        "\u{1F600}",
+        "\u{1F60D}",
+        "\u{1F680}",
+        "\u{1F4A9}",
+        "\u{2764}\u{FE0F}",
+        "\u{1F44D}\u{1F3FD}",
+    ];
+    let mut s = String::new();
+    let mut i = 0;
+    while s.len() < 10_000 {
+        s.push_str(emojis[i % emojis.len()]);
+        s.push(' ');
+        i += 1;
+    }
+    s.truncate(s.floor_char_boundary(10_000));
+    s
+}
+
+fn gen_mixed() -> String {
+    let segments = [
+        "Hello world! ",
+        "Héllo wörld! ",
+        "漢字仮名交じり ",
+        "بِسْمِ اللَّهِ ",
+        "대한민국 ",
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} ",
+        "Ça fait été ",
+        "日本語テスト ",
+    ];
+    let mut s = String::new();
+    let mut i = 0;
+    while s.len() < 10_000 {
+        s.push_str(segments[i % segments.len()]);
+        i += 1;
+    }
+    s.truncate(s.floor_char_boundary(10_000));
+    s
+}
+
 fn main() {
     let workload = std::env::args().nth(1).unwrap_or_else(|| {
         eprintln!("usage: perf_driver <cjk|arabic|hangul|emoji|mixed>");
@@ -29,6 +95,10 @@ fn main() {
 
     let corpus = match workload.as_str() {
         "cjk" => gen_cjk(),
+        "arabic" => gen_arabic(),
+        "hangul" => gen_hangul(),
+        "emoji" => gen_emoji(),
+        "mixed" => gen_mixed(),
         other => {
             eprintln!("unknown workload: {other}");
             std::process::exit(2);

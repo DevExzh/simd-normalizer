@@ -27,3 +27,7 @@ simd-normalizer = { path = ".", features = ["internal-test-api"] }
 [[bench]]
 name = "bench"
 harness = false
+
+[[bin]]
+name = "perf_driver"
+path = "benches/perf_driver.rs"

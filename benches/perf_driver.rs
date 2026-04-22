@@ -102,7 +102,7 @@ fn main() {
         other => {
             eprintln!("unknown workload: {other}");
             std::process::exit(2);
-        }
+        },
     };
 
     let normalizer = nfc();

@@ -7,7 +7,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # ---- pre-flight -----------------------------------------------------------
-command -v perf >/dev/null 2>&1 || { echo "perf not on PATH" >&2; exit 1; }
+if ! command -v perf >/dev/null 2>&1; then
+  if [[ -n "${DIAG_SMOKE:-}" ]]; then
+    echo "DIAG_SMOKE=1 but perf unavailable; silent-skip." >&2
+    exit 0
+  fi
+  echo "perf not on PATH" >&2
+  exit 1
+fi
 command -v cargo >/dev/null 2>&1 || { echo "cargo not on PATH" >&2; exit 1; }
 
 PARANOID="$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo 4)"

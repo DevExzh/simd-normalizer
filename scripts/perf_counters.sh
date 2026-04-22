@@ -144,3 +144,63 @@ for fam in "${!RESOLVED[@]}"; do
 done
 echo "measurement done" >&2
 # Part C appended below this line.
+
+# ---- report generation ---------------------------------------------------
+REPORT="docs/perf-counters-$(date -u +%Y-%m-%d).md"
+{
+  echo "# Perf counters — slow-path workloads ($(date -u +%Y-%m-%d))"
+  echo
+  echo "**Host:** $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')  |  **Kernel:** $(uname -r)  |  **perf:** $(perf --version | awk '{print $3}')"
+  echo "**Vendor counter set:** $VENDOR"
+  echo
+} > "$REPORT"
+
+for w in "${WORKLOADS[@]}"; do
+  CSV="$RESULTS_DIR/${w}.csv"
+  {
+    echo "## $w"
+    echo
+    echo "| counter | median | min | max | stddev | per-1k-insn |"
+    echo "| --- | ---: | ---: | ---: | ---: | ---: |"
+    declare -A MED
+    while IFS= read -r line; do
+      ev=$(echo "$line" | awk '{print $1}')
+      counts=$(echo "$line" | cut -d' ' -f2-)
+      med=$(printf '%s\n' $counts | sort -n | awk '
+        { a[NR]=$1 } END {
+          n=NR; if (n==0){print 0; exit}
+          if (n%2==1) print a[(n+1)/2]; else print (a[n/2]+a[n/2+1])/2
+        }')
+      MED[$ev]=$med
+    done < <(awk -F, '
+      $3 != "" && $1 ~ /^[0-9.]+$/ { vals[$3] = vals[$3] " " $1 }
+      END { for (e in vals) print e, vals[e] }
+    ' "$CSV")
+    INSN=${MED[instructions]:-0}
+    mapfile -t FAMS < "$RESULTS_DIR/fam_order.txt"
+    while IFS=$'\t' read -r fam ev; do
+      if [[ "$ev" == "n/a" ]]; then
+        echo "| $fam | n/a | n/a | n/a | n/a | n/a |"
+        continue
+      fi
+      m=${MED[$ev]:-0}
+      per1k=$(awk -v m="$m" -v i="$INSN" 'BEGIN{ if (i>0) printf "%.3f", m*1000/i; else print "n/a" }')
+      stats=$(awk -F, -v ev="$ev" '$3==ev && $1 ~ /^[0-9.]+$/ {print $1}' "$CSV" \
+        | sort -n \
+        | awk '{ a[NR]=$1 }
+          END {
+            n=NR; if (n==0){print "-,-,-"; exit}
+            min=a[1]; max=a[n]
+            sum=0; for (i=1;i<=n;i++) sum+=a[i]; mean=sum/n
+            sq=0; for (i=1;i<=n;i++) sq+=(a[i]-mean)^2
+            sd=(n>1)?sqrt(sq/(n-1)):0
+            printf "%d,%d,%.2f", min, max, sd
+          }')
+      mn=$(echo "$stats" | cut -d, -f1)
+      mx=$(echo "$stats" | cut -d, -f2)
+      sd=$(echo "$stats" | cut -d, -f3)
+      echo "| $fam (\`$ev\`) | $m | $mn | $mx | $sd | $per1k |"
+    done < "$RESULTS_DIR/resolved.tsv"
+    echo
+  } >> "$REPORT"
+done

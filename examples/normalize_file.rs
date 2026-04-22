@@ -46,7 +46,10 @@ fn main() {
     } else {
         // Piped input -- read line by line from stdin.
         let reader = stdin.lock();
-        process_lines(reader.lines().map(|r| r.expect("failed to read stdin")), form);
+        process_lines(
+            reader.lines().map(|r| r.expect("failed to read stdin")),
+            form,
+        );
     }
 }
 
@@ -89,18 +92,20 @@ fn parse_args(args: &[String]) -> (Form, bool) {
                 eprintln!("  normalizes each line to the chosen Unicode form (default: NFC).");
                 eprintln!();
                 eprintln!("Options:");
-                eprintln!("  --nfc   Canonical Decomposition, then Canonical Composition (default)");
+                eprintln!(
+                    "  --nfc   Canonical Decomposition, then Canonical Composition (default)"
+                );
                 eprintln!("  --nfd   Canonical Decomposition");
                 eprintln!("  --nfkc  Compatibility Decomposition, then Canonical Composition");
                 eprintln!("  --nfkd  Compatibility Decomposition");
                 eprintln!("  --demo  Run with built-in sample strings (ignores stdin)");
                 std::process::exit(0);
-            }
+            },
             other => {
                 eprintln!("Unknown argument: {other}");
                 eprintln!("Usage: normalize_file [--nfc|--nfd|--nfkc|--nfkd] [--demo]");
                 std::process::exit(1);
-            }
+            },
         }
     }
     (form, demo)
@@ -133,7 +138,15 @@ fn process_lines(lines: impl Iterator<Item = String>, form: Form) {
 
         // Print with Rust debug escapes so combining characters and
         // non-printable code points are visible.
-        println!("--- line {} {}", count, if was_normalized { "(already normalized)" } else { "(changed)" });
+        println!(
+            "--- line {} {}",
+            count,
+            if was_normalized {
+                "(already normalized)"
+            } else {
+                "(changed)"
+            }
+        );
         println!("  input:  {:?}", line);
         println!("  output: {:?}", buf);
     }

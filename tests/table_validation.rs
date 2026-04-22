@@ -416,7 +416,9 @@ fn needs_starter_shadow_matches_legacy_rule() {
     use simd_normalizer::tables_ext as te;
 
     for cp in 0u32..=0x10FFFF {
-        if (0xD800..=0xDFFF).contains(&cp) { continue; }
+        if (0xD800..=0xDFFF).contains(&cp) {
+            continue;
+        }
         let ch = char::from_u32(cp).unwrap();
         let tv = if cp >= 0x10000 {
             te::raw_decomp_trie_value_supp_canonical(cp)
@@ -425,6 +427,10 @@ fn needs_starter_shadow_matches_legacy_rule() {
         };
         let fused = te::needs_starter_shadow_bit(tv);
         let legacy = te::legacy_needs_starter_shadow(ch);
-        assert_eq!(fused, legacy, "cp=U+{:04X}: fused={} legacy={}", cp, fused, legacy);
+        assert_eq!(
+            fused, legacy,
+            "cp=U+{:04X}: fused={} legacy={}",
+            cp, fused, legacy
+        );
     }
 }

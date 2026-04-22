@@ -2,6 +2,8 @@
 //
 // Unicode version: 17.0.0
 
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 /// Confusable mapping table: (source_cp, mapping_value) pairs.
 /// 6565 entries, sorted by source code point.
 /// If high bit of mapping_value is set, it is an expansion:

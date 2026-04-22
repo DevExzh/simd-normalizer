@@ -88,25 +88,29 @@ fn assert_is_normalized_all(input: &str, nfc: bool, nfd: bool, nfkc: bool, nfkd:
         input.is_nfc(),
         nfc,
         "is_nfc mismatch for {:?}: expected {}",
-        input, nfc
+        input,
+        nfc
     );
     assert_eq!(
         input.is_nfd(),
         nfd,
         "is_nfd mismatch for {:?}: expected {}",
-        input, nfd
+        input,
+        nfd
     );
     assert_eq!(
         input.is_nfkc(),
         nfkc,
         "is_nfkc mismatch for {:?}: expected {}",
-        input, nfkc
+        input,
+        nfkc
     );
     assert_eq!(
         input.is_nfkd(),
         nfkd,
         "is_nfkd mismatch for {:?}: expected {}",
-        input, nfkd
+        input,
+        nfkd
     );
 
     // Cross-validate with ICU
@@ -643,24 +647,9 @@ fn hebrew_fb4f_ligature_alef_lamed() {
 fn nfc_idempotent_for_all_singletons() {
     // For every composition exclusion tested, NFC of NFC must equal NFC.
     let exclusions: Vec<&str> = vec![
-        "\u{2126}",
-        "\u{212A}",
-        "\u{212B}",
-        "\u{0340}",
-        "\u{0341}",
-        "\u{0344}",
-        "\u{0958}",
-        "\u{0959}",
-        "\u{095A}",
-        "\u{095B}",
-        "\u{095C}",
-        "\u{095D}",
-        "\u{095E}",
-        "\u{095F}",
-        "\u{FB1D}",
-        "\u{FB2A}",
-        "\u{FB2B}",
-        "\u{FB49}",
+        "\u{2126}", "\u{212A}", "\u{212B}", "\u{0340}", "\u{0341}", "\u{0344}", "\u{0958}",
+        "\u{0959}", "\u{095A}", "\u{095B}", "\u{095C}", "\u{095D}", "\u{095E}", "\u{095F}",
+        "\u{FB1D}", "\u{FB2A}", "\u{FB2B}", "\u{FB49}",
     ];
 
     for input in &exclusions {
@@ -677,24 +666,9 @@ fn nfc_idempotent_for_all_singletons() {
 #[test]
 fn nfd_idempotent_for_all_singletons() {
     let exclusions: Vec<&str> = vec![
-        "\u{2126}",
-        "\u{212A}",
-        "\u{212B}",
-        "\u{0340}",
-        "\u{0341}",
-        "\u{0344}",
-        "\u{0958}",
-        "\u{0959}",
-        "\u{095A}",
-        "\u{095B}",
-        "\u{095C}",
-        "\u{095D}",
-        "\u{095E}",
-        "\u{095F}",
-        "\u{FB1D}",
-        "\u{FB2A}",
-        "\u{FB2B}",
-        "\u{FB49}",
+        "\u{2126}", "\u{212A}", "\u{212B}", "\u{0340}", "\u{0341}", "\u{0344}", "\u{0958}",
+        "\u{0959}", "\u{095A}", "\u{095B}", "\u{095C}", "\u{095D}", "\u{095E}", "\u{095F}",
+        "\u{FB1D}", "\u{FB2A}", "\u{FB2B}", "\u{FB49}",
     ];
 
     for input in &exclusions {
@@ -716,8 +690,8 @@ fn excluded_chars_never_appear_in_nfc_output() {
         '\u{2126}', '\u{212A}', '\u{212B}', // Symbol singletons
         '\u{0340}', '\u{0341}', '\u{0344}', // Combining mark singletons
         '\u{0958}', '\u{0959}', '\u{095A}', '\u{095B}', // Devanagari
-        '\u{095C}', '\u{095D}', '\u{095E}', '\u{095F}',
-        '\u{FB1D}', '\u{FB2A}', '\u{FB2B}', '\u{FB49}', // Hebrew
+        '\u{095C}', '\u{095D}', '\u{095E}', '\u{095F}', '\u{FB1D}', '\u{FB2A}', '\u{FB2B}',
+        '\u{FB49}', // Hebrew
     ];
 
     for &ch in &excluded_chars {
@@ -797,10 +771,8 @@ fn dialytika_tonos_in_greek_text() {
 fn nfc_then_nfd_roundtrip() {
     // NFC -> NFD -> NFC must be stable for composition exclusions.
     let inputs = [
-        "\u{2126}", "\u{212A}", "\u{212B}",
-        "\u{0340}", "\u{0341}", "\u{0344}",
-        "\u{0958}", "\u{095F}",
-        "\u{FB1D}", "\u{FB2A}",
+        "\u{2126}", "\u{212A}", "\u{212B}", "\u{0340}", "\u{0341}", "\u{0344}", "\u{0958}",
+        "\u{095F}", "\u{FB1D}", "\u{FB2A}",
     ];
 
     for input in &inputs {
@@ -820,10 +792,8 @@ fn nfkc_agrees_with_nfc_for_canonical_exclusions() {
     // For characters with canonical (not compatibility) decompositions,
     // NFC and NFKC should produce the same result.
     let canonical_exclusions = [
-        "\u{2126}", "\u{212A}", "\u{212B}",
-        "\u{0340}", "\u{0341}", "\u{0344}",
-        "\u{0958}", "\u{095F}",
-        "\u{FB1D}", "\u{FB2A}",
+        "\u{2126}", "\u{212A}", "\u{212B}", "\u{0340}", "\u{0341}", "\u{0344}", "\u{0958}",
+        "\u{095F}", "\u{FB1D}", "\u{FB2A}",
     ];
 
     for input in &canonical_exclusions {
@@ -840,10 +810,8 @@ fn nfkc_agrees_with_nfc_for_canonical_exclusions() {
 #[test]
 fn nfkd_agrees_with_nfd_for_canonical_exclusions() {
     let canonical_exclusions = [
-        "\u{2126}", "\u{212A}", "\u{212B}",
-        "\u{0340}", "\u{0341}", "\u{0344}",
-        "\u{0958}", "\u{095F}",
-        "\u{FB1D}", "\u{FB2A}",
+        "\u{2126}", "\u{212A}", "\u{212B}", "\u{0340}", "\u{0341}", "\u{0344}", "\u{0958}",
+        "\u{095F}", "\u{FB1D}", "\u{FB2A}",
     ];
 
     for input in &canonical_exclusions {

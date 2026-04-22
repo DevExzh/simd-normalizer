@@ -47,14 +47,28 @@ proptest! {
 #[test]
 fn fused_equals_legacy_specific_cases() {
     let opts = default_opts();
-    for case in ["File", "FILE", "fıle", "apple", "\u{0430}\u{0440}\u{0440}le",
-                 "\u{FF21}", "Straße", "Istanbul", "", "a",
-                 "\u{1F600}hello", "e\u{0301}quipe",
-                 "\u{1F80}", "\u{0345}"] { // minimized U+0345 divergence from the abandoned full-fusion attempt
+    for case in [
+        "File",
+        "FILE",
+        "fıle",
+        "apple",
+        "\u{0430}\u{0440}\u{0440}le",
+        "\u{FF21}",
+        "Straße",
+        "Istanbul",
+        "",
+        "a",
+        "\u{1F600}hello",
+        "e\u{0301}quipe",
+        "\u{1F80}",
+        "\u{0345}",
+    ] {
+        // minimized U+0345 divergence from the abandoned full-fusion attempt
         assert_eq!(
             normalize_for_matching(case, &opts),
             normalize_for_matching_legacy(case, &opts),
-            "case mismatch: {:?}", case,
+            "case mismatch: {:?}",
+            case,
         );
     }
 }

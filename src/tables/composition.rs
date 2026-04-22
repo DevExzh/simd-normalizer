@@ -2,6 +2,8 @@
 //
 // Unicode version: 17.0.0
 
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 /// Canonical composition pairs: (packed_pair, composed_char).
 /// packed_pair = (starter << 21) | combining.
 /// Sorted by packed_pair for binary search.

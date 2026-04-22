@@ -17,8 +17,8 @@
 
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 use proptest::prelude::*;
-use simd_normalizer::UnicodeNormalization;
 use simd_normalizer::IsNormalized;
+use simd_normalizer::UnicodeNormalization;
 use std::borrow::Cow;
 
 // ---------------------------------------------------------------------------
@@ -305,16 +305,16 @@ proptest! {
 #[test]
 fn nfkd_differs_from_nfd_but_equals_nfd_of_nfkc() {
     let inputs = [
-        "\u{FB01}",           // fi ligature
-        "\u{00A0}",           // NBSP
-        "\u{FF21}",           // fullwidth A
-        "\u{2126}",           // Ohm sign
-        "\u{2460}",           // circled digit one
-        "\u{3300}",           // CJK compat: square apaato
-        "\u{FB20}",           // Hebrew alternative ayin
-        "\u{2075}",           // superscript 5
-        "\u{00BC}",           // fraction one-quarter
-        "\u{FB49}",           // Hebrew shin with dagesh
+        "\u{FB01}", // fi ligature
+        "\u{00A0}", // NBSP
+        "\u{FF21}", // fullwidth A
+        "\u{2126}", // Ohm sign
+        "\u{2460}", // circled digit one
+        "\u{3300}", // CJK compat: square apaato
+        "\u{FB20}", // Hebrew alternative ayin
+        "\u{2075}", // superscript 5
+        "\u{00BC}", // fraction one-quarter
+        "\u{FB49}", // Hebrew shin with dagesh
     ];
 
     for input in &inputs {
@@ -335,8 +335,10 @@ fn nfkd_differs_from_nfd_but_equals_nfd_of_nfkc() {
 
         // Demonstrate that NFKD != NFD for chars with compatibility mappings
         // (fi ligature, NBSP, fullwidth, etc.)
-        let has_compat_mapping = ["\u{FB01}", "\u{00A0}", "\u{FF21}", "\u{2460}",
-                                   "\u{3300}", "\u{FB20}", "\u{2075}", "\u{00BC}"];
+        let has_compat_mapping = [
+            "\u{FB01}", "\u{00A0}", "\u{FF21}", "\u{2460}", "\u{3300}", "\u{FB20}", "\u{2075}",
+            "\u{00BC}",
+        ];
         if has_compat_mapping.contains(input) {
             assert_ne!(
                 &*nfkd, &*nfd,
@@ -660,30 +662,38 @@ proptest! {
 fn normalize_to_appends_correctly_all_forms() {
     let inputs = [
         "hello",
-        "\u{00C5}",           // precomposed A-ring
-        "e\u{0301}",          // e + combining acute
-        "\u{1100}\u{1161}",   // Hangul L+V
-        "\u{AC00}",           // Hangul syllable
-        "\u{FB01}",           // fi ligature
-        "\u{2126}",           // Ohm sign
-        "\u{00A0}",           // NBSP
+        "\u{00C5}",         // precomposed A-ring
+        "e\u{0301}",        // e + combining acute
+        "\u{1100}\u{1161}", // Hangul L+V
+        "\u{AC00}",         // Hangul syllable
+        "\u{FB01}",         // fi ligature
+        "\u{2126}",         // Ohm sign
+        "\u{00A0}",         // NBSP
     ];
 
     type NormFn = fn() -> Box<dyn Fn(&str) -> Cow<'_, str> + 'static>;
     type NormToFn = fn() -> Box<dyn Fn(&str, &mut String) -> bool + 'static>;
     let constructors: [(&str, NormFn, NormToFn); 4] = [
-        ("NFC",
-         || Box::new(|s: &str| simd_normalizer::nfc().normalize(s)),
-         || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfc().normalize_to(s, buf))),
-        ("NFD",
-         || Box::new(|s: &str| simd_normalizer::nfd().normalize(s)),
-         || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfd().normalize_to(s, buf))),
-        ("NFKC",
-         || Box::new(|s: &str| simd_normalizer::nfkc().normalize(s)),
-         || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfkc().normalize_to(s, buf))),
-        ("NFKD",
-         || Box::new(|s: &str| simd_normalizer::nfkd().normalize(s)),
-         || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfkd().normalize_to(s, buf))),
+        (
+            "NFC",
+            || Box::new(|s: &str| simd_normalizer::nfc().normalize(s)),
+            || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfc().normalize_to(s, buf)),
+        ),
+        (
+            "NFD",
+            || Box::new(|s: &str| simd_normalizer::nfd().normalize(s)),
+            || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfd().normalize_to(s, buf)),
+        ),
+        (
+            "NFKC",
+            || Box::new(|s: &str| simd_normalizer::nfkc().normalize(s)),
+            || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfkc().normalize_to(s, buf)),
+        ),
+        (
+            "NFKD",
+            || Box::new(|s: &str| simd_normalizer::nfkd().normalize(s)),
+            || Box::new(|s: &str, buf: &mut String| simd_normalizer::nfkd().normalize_to(s, buf)),
+        ),
     ];
 
     for (label, make_norm, make_norm_to) in &constructors {
@@ -876,37 +886,37 @@ proptest! {
 fn cross_validate_icu4x_tricky_inputs() {
     let inputs = [
         // Hangul
-        "\u{AC00}",                       // Hangul syllable GA
-        "\u{1100}\u{1161}",               // Hangul L+V (composes to GA)
-        "\u{1100}\u{1161}\u{11A8}",       // Hangul L+V+T
-        "\u{D4DB}",                        // Last Hangul syllable with T
+        "\u{AC00}",                 // Hangul syllable GA
+        "\u{1100}\u{1161}",         // Hangul L+V (composes to GA)
+        "\u{1100}\u{1161}\u{11A8}", // Hangul L+V+T
+        "\u{D4DB}",                 // Last Hangul syllable with T
         // Composition exclusions
-        "\u{2126}",                        // Ohm sign
-        "\u{212A}",                        // Kelvin sign
-        "\u{212B}",                        // Angstrom sign
-        "\u{0958}",                        // Devanagari QA
-        "\u{FB1D}",                        // Hebrew yod with hiriq
-        "\u{FB2A}",                        // Hebrew shin with shin dot
+        "\u{2126}", // Ohm sign
+        "\u{212A}", // Kelvin sign
+        "\u{212B}", // Angstrom sign
+        "\u{0958}", // Devanagari QA
+        "\u{FB1D}", // Hebrew yod with hiriq
+        "\u{FB2A}", // Hebrew shin with shin dot
         // Combining mark singletons
-        "\u{0340}",                        // Combining grave tone mark
-        "\u{0341}",                        // Combining acute tone mark
-        "\u{0344}",                        // Combining Greek dialytika tonos
+        "\u{0340}", // Combining grave tone mark
+        "\u{0341}", // Combining acute tone mark
+        "\u{0344}", // Combining Greek dialytika tonos
         // Compatibility characters
-        "\u{FB01}",                        // fi ligature
-        "\u{00A0}",                        // NBSP
-        "\u{FF21}",                        // Fullwidth A
-        "\u{2075}",                        // Superscript 5
-        "\u{00BC}",                        // Fraction one-quarter
-        "\u{FB49}",                        // Hebrew shin with dagesh
+        "\u{FB01}", // fi ligature
+        "\u{00A0}", // NBSP
+        "\u{FF21}", // Fullwidth A
+        "\u{2075}", // Superscript 5
+        "\u{00BC}", // Fraction one-quarter
+        "\u{FB49}", // Hebrew shin with dagesh
         // Multi-character combining sequences
-        "a\u{0308}\u{0301}",              // a + diaeresis + acute
-        "A\u{0327}\u{030A}",              // A + cedilla + ring above
-        "\u{1E0A}\u{0323}",               // D-dot-above + dot-below
+        "a\u{0308}\u{0301}", // a + diaeresis + acute
+        "A\u{0327}\u{030A}", // A + cedilla + ring above
+        "\u{1E0A}\u{0323}",  // D-dot-above + dot-below
         // CJK compatibility ideograph
-        "\u{2F800}",                       // CJK compat ideograph
+        "\u{2F800}", // CJK compat ideograph
         // Zero-width chars blocking composition
-        "e\u{200C}\u{0301}",              // ZWNJ blocks composition
-        "e\u{034F}\u{0301}",              // CGJ blocks composition
+        "e\u{200C}\u{0301}", // ZWNJ blocks composition
+        "e\u{034F}\u{0301}", // CGJ blocks composition
         // BOM + combining
         "\u{FEFF}a\u{0308}",
         // Mixed scripts
@@ -1066,7 +1076,7 @@ fn hangul_cross_form_invariants() {
 
     // Hangul with trailing consonant
     let lvt = "\u{1100}\u{1161}\u{11A8}"; // L + V + T
-    let syllable = "\u{AC01}";            // Precomposed LVT syllable
+    let syllable = "\u{AC01}"; // Precomposed LVT syllable
     assert_eq!(&*lvt.nfc(), syllable);
     assert_eq!(&*syllable.nfd(), lvt);
     assert_eq!(&*syllable.nfkc(), &*syllable.nfkd().nfc());
@@ -1090,24 +1100,32 @@ fn composition_exclusions_cross_form() {
 
     for input in &canonical_exclusions {
         assert_eq!(
-            &*input.nfc(), &*input.nfkc(),
-            "NFC != NFKC for canonical exclusion {:?}", input
+            &*input.nfc(),
+            &*input.nfkc(),
+            "NFC != NFKC for canonical exclusion {:?}",
+            input
         );
         assert_eq!(
-            &*input.nfd(), &*input.nfkd(),
-            "NFD != NFKD for canonical exclusion {:?}", input
+            &*input.nfd(),
+            &*input.nfkd(),
+            "NFD != NFKD for canonical exclusion {:?}",
+            input
         );
 
         // Invariant 3: NFKC == NFC(NFKD)
         assert_eq!(
-            &*input.nfkc(), &*input.nfkd().nfc(),
-            "NFKC != NFC(NFKD) for canonical exclusion {:?}", input
+            &*input.nfkc(),
+            &*input.nfkd().nfc(),
+            "NFKC != NFC(NFKD) for canonical exclusion {:?}",
+            input
         );
 
         // Invariant 8: NFD(NFC) == NFD
         assert_eq!(
-            &*input.nfc().nfd(), &*input.nfd(),
-            "NFD(NFC) != NFD for canonical exclusion {:?}", input
+            &*input.nfc().nfd(),
+            &*input.nfd(),
+            "NFD(NFC) != NFD for canonical exclusion {:?}",
+            input
         );
     }
 }
@@ -1117,10 +1135,10 @@ fn composition_exclusions_cross_form() {
 #[test]
 fn compatibility_chars_cross_form() {
     let compat_chars = [
-        ("\u{FB01}", "fi"),            // fi ligature -> "fi"
-        ("\u{00A0}", " "),             // NBSP -> space
-        ("\u{FF21}", "A"),             // Fullwidth A -> A
-        ("\u{2075}", "5"),             // Superscript 5 -> 5
+        ("\u{FB01}", "fi"), // fi ligature -> "fi"
+        ("\u{00A0}", " "),  // NBSP -> space
+        ("\u{FF21}", "A"),  // Fullwidth A -> A
+        ("\u{2075}", "5"),  // Superscript 5 -> 5
     ];
 
     for (input, expected_compat) in &compat_chars {
@@ -1130,24 +1148,32 @@ fn compatibility_chars_cross_form() {
 
         // NFKC/NFKD decompose them
         assert_eq!(
-            &*input.nfkc(), *expected_compat,
-            "NFKC mismatch for {:?}", input
+            &*input.nfkc(),
+            *expected_compat,
+            "NFKC mismatch for {:?}",
+            input
         );
         assert_eq!(
-            &*input.nfkd(), *expected_compat,
-            "NFKD mismatch for {:?}", input
+            &*input.nfkd(),
+            *expected_compat,
+            "NFKD mismatch for {:?}",
+            input
         );
 
         // Invariant 3: NFKC == NFC(NFKD)
         assert_eq!(
-            &*input.nfkc(), &*input.nfkd().nfc(),
-            "NFKC != NFC(NFKD) for compat char {:?}", input
+            &*input.nfkc(),
+            &*input.nfkd().nfc(),
+            "NFKC != NFC(NFKD) for compat char {:?}",
+            input
         );
 
         // Invariant 8: NFKD(NFKC) == NFKD
         assert_eq!(
-            &*input.nfkc().nfkd(), &*input.nfkd(),
-            "NFKD(NFKC) != NFKD for compat char {:?}", input
+            &*input.nfkc().nfkd(),
+            &*input.nfkd(),
+            "NFKD(NFKC) != NFKD for compat char {:?}",
+            input
         );
     }
 }
@@ -1166,8 +1192,14 @@ fn multi_combining_cross_form() {
     let nfkd = input.nfkd();
 
     // For purely canonical sequences, NFC == NFKC and NFD == NFKD
-    assert_eq!(&*nfc, &*nfkc, "NFC != NFKC for canonical combining sequence");
-    assert_eq!(&*nfd, &*nfkd, "NFD != NFKD for canonical combining sequence");
+    assert_eq!(
+        &*nfc, &*nfkc,
+        "NFC != NFKC for canonical combining sequence"
+    );
+    assert_eq!(
+        &*nfd, &*nfkd,
+        "NFD != NFKD for canonical combining sequence"
+    );
 
     // Invariant 3: NFKC == NFC(NFKD)
     assert_eq!(&*nfkc, &*nfkd.nfc(), "NFKC != NFC(NFKD)");
@@ -1181,11 +1213,16 @@ fn multi_combining_cross_form() {
     let nfd2 = input2.nfd();
 
     // Invariant 8: NFD(NFC) == NFD
-    assert_eq!(&*nfc2.nfd(), &*nfd2, "NFD(NFC) != NFD for dot-above+dot-below");
+    assert_eq!(
+        &*nfc2.nfd(),
+        &*nfd2,
+        "NFD(NFC) != NFD for dot-above+dot-below"
+    );
 
     // Invariant 3
     assert_eq!(
-        &*input2.nfkc(), &*input2.nfkd().nfc(),
+        &*input2.nfkc(),
+        &*input2.nfkd().nfc(),
         "NFKC != NFC(NFKD) for dot-above+dot-below"
     );
 }
@@ -1198,31 +1235,61 @@ fn quick_check_deterministic_agreement() {
 
     // NFC
     assert_eq!(simd_normalizer::nfc().quick_check(ascii), IsNormalized::Yes);
-    assert!(matches!(simd_normalizer::nfc().normalize(ascii), Cow::Borrowed(_)));
+    assert!(matches!(
+        simd_normalizer::nfc().normalize(ascii),
+        Cow::Borrowed(_)
+    ));
 
     // NFD
     assert_eq!(simd_normalizer::nfd().quick_check(ascii), IsNormalized::Yes);
-    assert!(matches!(simd_normalizer::nfd().normalize(ascii), Cow::Borrowed(_)));
+    assert!(matches!(
+        simd_normalizer::nfd().normalize(ascii),
+        Cow::Borrowed(_)
+    ));
 
     // NFKC
-    assert_eq!(simd_normalizer::nfkc().quick_check(ascii), IsNormalized::Yes);
-    assert!(matches!(simd_normalizer::nfkc().normalize(ascii), Cow::Borrowed(_)));
+    assert_eq!(
+        simd_normalizer::nfkc().quick_check(ascii),
+        IsNormalized::Yes
+    );
+    assert!(matches!(
+        simd_normalizer::nfkc().normalize(ascii),
+        Cow::Borrowed(_)
+    ));
 
     // NFKD
-    assert_eq!(simd_normalizer::nfkd().quick_check(ascii), IsNormalized::Yes);
-    assert!(matches!(simd_normalizer::nfkd().normalize(ascii), Cow::Borrowed(_)));
+    assert_eq!(
+        simd_normalizer::nfkd().quick_check(ascii),
+        IsNormalized::Yes
+    );
+    assert!(matches!(
+        simd_normalizer::nfkd().normalize(ascii),
+        Cow::Borrowed(_)
+    ));
 
     // Precomposed char: NFC=Yes, NFD=No
     let precomposed = "\u{00C5}";
-    assert_eq!(simd_normalizer::nfc().quick_check(precomposed), IsNormalized::Yes);
-    assert_eq!(simd_normalizer::nfd().quick_check(precomposed), IsNormalized::No);
-    assert!(matches!(simd_normalizer::nfd().normalize(precomposed), Cow::Owned(_)));
+    assert_eq!(
+        simd_normalizer::nfc().quick_check(precomposed),
+        IsNormalized::Yes
+    );
+    assert_eq!(
+        simd_normalizer::nfd().quick_check(precomposed),
+        IsNormalized::No
+    );
+    assert!(matches!(
+        simd_normalizer::nfd().normalize(precomposed),
+        Cow::Owned(_)
+    ));
 
     // fi ligature: NFC=Yes, NFKC=No
     let fi = "\u{FB01}";
     assert_eq!(simd_normalizer::nfc().quick_check(fi), IsNormalized::Yes);
     assert_eq!(simd_normalizer::nfkc().quick_check(fi), IsNormalized::No);
-    assert!(matches!(simd_normalizer::nfkc().normalize(fi), Cow::Owned(_)));
+    assert!(matches!(
+        simd_normalizer::nfkc().normalize(fi),
+        Cow::Owned(_)
+    ));
 
     // Ohm sign: No for all forms
     let ohm = "\u{2126}";
@@ -1244,28 +1311,28 @@ fn comprehensive_deterministic_cross_form() {
     let inputs: Vec<&str> = vec![
         "",
         "ASCII only",
-        "\u{00E9}",                              // precomposed e-acute
-        "e\u{0301}",                              // decomposed e-acute
-        "\u{AC00}",                               // Hangul GA
-        "\u{1100}\u{1161}",                       // Hangul jamo L+V
-        "\u{1100}\u{1161}\u{11A8}",               // Hangul jamo L+V+T
-        "\u{FB01}",                               // fi ligature
-        "\u{00A0}",                               // NBSP
-        "\u{2126}",                               // Ohm sign
-        "\u{212A}",                               // Kelvin sign
-        "\u{212B}",                               // Angstrom sign
-        "\u{FF21}\u{FF22}\u{FF23}",               // Fullwidth ABC
-        "\u{0958}",                               // Devanagari QA
-        "\u{0340}",                               // Combining grave tone mark
-        "a\u{0308}\u{0301}",                      // a + diaeresis + acute
-        "A\u{0327}\u{030A}",                      // A + cedilla + ring above
-        "\u{1E0A}\u{0323}",                       // D-dot-above + dot-below
-        "\u{FEFF}a\u{0308}",                      // BOM + a + diaeresis
-        "\u{2F800}",                               // CJK compat ideograph
-        "\u{00BC}",                                // Fraction one-quarter
-        "\u{2075}",                                // Superscript 5
-        "e\u{200C}\u{0301}",                      // ZWNJ blocking composition
-        "\u{D4DB}",                                // Last Hangul with trailing
+        "\u{00E9}",                 // precomposed e-acute
+        "e\u{0301}",                // decomposed e-acute
+        "\u{AC00}",                 // Hangul GA
+        "\u{1100}\u{1161}",         // Hangul jamo L+V
+        "\u{1100}\u{1161}\u{11A8}", // Hangul jamo L+V+T
+        "\u{FB01}",                 // fi ligature
+        "\u{00A0}",                 // NBSP
+        "\u{2126}",                 // Ohm sign
+        "\u{212A}",                 // Kelvin sign
+        "\u{212B}",                 // Angstrom sign
+        "\u{FF21}\u{FF22}\u{FF23}", // Fullwidth ABC
+        "\u{0958}",                 // Devanagari QA
+        "\u{0340}",                 // Combining grave tone mark
+        "a\u{0308}\u{0301}",        // a + diaeresis + acute
+        "A\u{0327}\u{030A}",        // A + cedilla + ring above
+        "\u{1E0A}\u{0323}",         // D-dot-above + dot-below
+        "\u{FEFF}a\u{0308}",        // BOM + a + diaeresis
+        "\u{2F800}",                // CJK compat ideograph
+        "\u{00BC}",                 // Fraction one-quarter
+        "\u{2075}",                 // Superscript 5
+        "e\u{200C}\u{0301}",        // ZWNJ blocking composition
+        "\u{D4DB}",                 // Last Hangul with trailing
     ];
 
     for input in &inputs {
@@ -1276,40 +1343,44 @@ fn comprehensive_deterministic_cross_form() {
 
         // Invariant 3: NFKC == NFC(NFKD)
         let nfc_of_nfkd = simd_normalizer::nfc().normalize(&nfkd);
-        assert_eq!(
-            &*nfkc, &*nfc_of_nfkd,
-            "NFKC != NFC(NFKD) for {:?}", input
-        );
+        assert_eq!(&*nfkc, &*nfc_of_nfkd, "NFKC != NFC(NFKD) for {:?}", input);
 
         // Invariant 4: NFKD == NFD(NFKC)
         let nfd_of_nfkc = simd_normalizer::nfd().normalize(&nfkc);
-        assert_eq!(
-            &*nfkd, &*nfd_of_nfkc,
-            "NFKD != NFD(NFKC) for {:?}", input
-        );
+        assert_eq!(&*nfkd, &*nfd_of_nfkc, "NFKD != NFD(NFKC) for {:?}", input);
 
         // Invariant 8a: NFD(NFC) == NFD
         let nfd_of_nfc = simd_normalizer::nfd().normalize(&nfc);
-        assert_eq!(
-            &*nfd_of_nfc, &*nfd,
-            "NFD(NFC) != NFD for {:?}", input
-        );
+        assert_eq!(&*nfd_of_nfc, &*nfd, "NFD(NFC) != NFD for {:?}", input);
 
         // Invariant 8b: NFKD(NFKC) == NFKD
         let nfkd_of_nfkc = simd_normalizer::nfkd().normalize(&nfkc);
-        assert_eq!(
-            &*nfkd_of_nfkc, &*nfkd,
-            "NFKD(NFKC) != NFKD for {:?}", input
-        );
+        assert_eq!(&*nfkd_of_nfkc, &*nfkd, "NFKD(NFKC) != NFKD for {:?}", input);
 
         // Cross-validate all 4 forms with ICU4X
-        assert_eq!(&*nfc, &*icu_nfc.normalize(input),
-            "NFC ICU4X mismatch for {:?}", input);
-        assert_eq!(&*nfd, &*icu_nfd.normalize(input),
-            "NFD ICU4X mismatch for {:?}", input);
-        assert_eq!(&*nfkc, &*icu_nfkc.normalize(input),
-            "NFKC ICU4X mismatch for {:?}", input);
-        assert_eq!(&*nfkd, &*icu_nfkd.normalize(input),
-            "NFKD ICU4X mismatch for {:?}", input);
+        assert_eq!(
+            &*nfc,
+            &*icu_nfc.normalize(input),
+            "NFC ICU4X mismatch for {:?}",
+            input
+        );
+        assert_eq!(
+            &*nfd,
+            &*icu_nfd.normalize(input),
+            "NFD ICU4X mismatch for {:?}",
+            input
+        );
+        assert_eq!(
+            &*nfkc,
+            &*icu_nfkc.normalize(input),
+            "NFKC ICU4X mismatch for {:?}",
+            input
+        );
+        assert_eq!(
+            &*nfkd,
+            &*icu_nfkd.normalize(input),
+            "NFKD ICU4X mismatch for {:?}",
+            input
+        );
     }
 }

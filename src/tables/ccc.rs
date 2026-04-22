@@ -2,6 +2,8 @@
 //
 // Unicode version: 17.0.0
 
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 /// BMP block index for CCC trie.
 pub(crate) static CCC_BMP_INDEX: &[u16] = &[
     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,

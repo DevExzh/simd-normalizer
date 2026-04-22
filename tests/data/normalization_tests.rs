@@ -2,6 +2,8 @@
 // Unicode version: 17.0.0
 // Test cases: 20034
 
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct NormalizationTest {

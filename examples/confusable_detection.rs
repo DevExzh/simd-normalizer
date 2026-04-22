@@ -125,9 +125,9 @@ fn section_skeleton_mapping() {
     println!("  Two strings are confusable if and only if they share the same skeleton.\n");
 
     let pairs: &[(&str, &str)] = &[
-        ("a", "\u{0430}"),          // Latin a vs Cyrillic a
+        ("a", "\u{0430}"),                              // Latin a vs Cyrillic a
         ("apple", "\u{0430}\u{0440}\u{0440}l\u{0435}"), // full word
-        ("hello", "hello"),         // identical
+        ("hello", "hello"),                             // identical
     ];
 
     for &(left, right) in pairs {
@@ -139,7 +139,10 @@ fn section_skeleton_mapping() {
         println!("    = {:?}", skel_left);
         println!("  skeleton({:?})", right);
         println!("    = {:?}", skel_right);
-        println!("  Same skeleton: {} -> confusable: {}\n", confusable, confusable);
+        println!(
+            "  Same skeleton: {} -> confusable: {}\n",
+            confusable, confusable
+        );
     }
 
     println!("  The skeleton is an opaque internal form. You should not display it");
@@ -157,17 +160,21 @@ fn section_domain_name_spoofing() {
     println!("  Internationalized Domain Names (IDN) can contain non-ASCII characters.");
     println!("  Attackers exploit this by registering domains that look like trusted ones.\n");
 
-    let legitimate_domains = [
-        "apple.com",
-        "google.com",
-        "paypal.com",
-    ];
+    let legitimate_domains = ["apple.com", "google.com", "paypal.com"];
 
     // Spoofed variants using Cyrillic lookalikes
     let spoofed_domains = [
         ("\u{0430}pple.com", "apple.com", "Cyrillic 'a' (U+0430)"),
-        ("g\u{043E}\u{043E}gle.com", "google.com", "Cyrillic 'o' (U+043E) x2"),
-        ("p\u{0430}yp\u{0430}l.com", "paypal.com", "Cyrillic 'a' (U+0430) x2"),
+        (
+            "g\u{043E}\u{043E}gle.com",
+            "google.com",
+            "Cyrillic 'o' (U+043E) x2",
+        ),
+        (
+            "p\u{0430}yp\u{0430}l.com",
+            "paypal.com",
+            "Cyrillic 'a' (U+0430) x2",
+        ),
     ];
 
     for (spoofed, target, description) in &spoofed_domains {
@@ -220,7 +227,10 @@ fn section_username_spoofing() {
 
     let registration_attempts = [
         ("\u{0430}dmin", "Cyrillic 'a' replacing Latin 'a'"),
-        ("\u{0430}lic\u{0435}", "Cyrillic 'a' and 'e' replacing Latin"),
+        (
+            "\u{0430}lic\u{0435}",
+            "Cyrillic 'a' and 'e' replacing Latin",
+        ),
         ("supp\u{043E}rt", "Cyrillic 'o' replacing Latin 'o'"),
         ("bob", "legitimate new username"),
     ];
@@ -242,13 +252,13 @@ fn section_username_spoofing() {
                     "  REJECTED: {:?} ({}) -- confusable with existing user {:?}",
                     new_name, description, existing
                 );
-            }
+            },
             None => {
                 println!(
                     "  ACCEPTED: {:?} ({}) -- no confusable conflict",
                     new_name, description
                 );
-            }
+            },
         }
     }
 
@@ -285,9 +295,9 @@ fn section_building_a_lookup_table() {
 
     // Check incoming identifiers against the table
     let incoming = [
-        "\u{0430}pple",           // Cyrillic 'a'
-        "g\u{043E}\u{043E}gle",   // Cyrillic 'o' x2
-        "newuser123",              // genuinely new
+        "\u{0430}pple",         // Cyrillic 'a'
+        "g\u{043E}\u{043E}gle", // Cyrillic 'o' x2
+        "newuser123",           // genuinely new
     ];
 
     println!("  Checking incoming identifiers:");
@@ -303,10 +313,10 @@ fn section_building_a_lookup_table() {
                         input, trusted
                     );
                 }
-            }
+            },
             None => {
                 println!("    {:?} -> no conflict, safe to register", input);
-            }
+            },
         }
     }
 

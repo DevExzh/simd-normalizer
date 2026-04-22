@@ -79,7 +79,8 @@ fn assert_nfd_matches_icu(label: &str, input: &str) {
     let ours = our_nfd(input);
     let reference = icu_nfd(input);
     assert_eq!(
-        ours, reference,
+        ours,
+        reference,
         "NFD mismatch [{label}]\n  input: {}\n  ours:  {}\n  icu:   {}",
         codepoints(input),
         codepoints(&ours),
@@ -91,7 +92,8 @@ fn assert_nfc_matches_icu(label: &str, input: &str) {
     let ours = our_nfc(input);
     let reference = icu_nfc(input);
     assert_eq!(
-        ours, reference,
+        ours,
+        reference,
         "NFC mismatch [{label}]\n  input: {}\n  ours:  {}\n  icu:   {}",
         codepoints(input),
         codepoints(&ours),
@@ -103,7 +105,8 @@ fn assert_nfkd_matches_icu(label: &str, input: &str) {
     let ours = our_nfkd(input);
     let reference = icu_nfkd(input);
     assert_eq!(
-        ours, reference,
+        ours,
+        reference,
         "NFKD mismatch [{label}]\n  input: {}\n  ours:  {}\n  icu:   {}",
         codepoints(input),
         codepoints(&ours),
@@ -115,7 +118,8 @@ fn assert_nfkc_matches_icu(label: &str, input: &str) {
     let ours = our_nfkc(input);
     let reference = icu_nfkc(input);
     assert_eq!(
-        ours, reference,
+        ours,
+        reference,
         "NFKC mismatch [{label}]\n  input: {}\n  ours:  {}\n  icu:   {}",
         codepoints(input),
         codepoints(&ours),
@@ -278,11 +282,13 @@ fn arabic_vowel_marks_single_base() {
     // U+0670 SUPERSCRIPT ALEF (CCC 35)
 
     // Forward order
-    let input_sorted = "\u{0628}\u{064B}\u{064C}\u{064D}\u{064E}\u{064F}\u{0650}\u{0651}\u{0652}\u{0670}";
+    let input_sorted =
+        "\u{0628}\u{064B}\u{064C}\u{064D}\u{064E}\u{064F}\u{0650}\u{0651}\u{0652}\u{0670}";
     assert_all_forms_match_icu("arabic-all-marks-sorted", input_sorted);
 
     // Reverse order
-    let input_reversed = "\u{0628}\u{0670}\u{0652}\u{0651}\u{0650}\u{064F}\u{064E}\u{064D}\u{064C}\u{064B}";
+    let input_reversed =
+        "\u{0628}\u{0670}\u{0652}\u{0651}\u{0650}\u{064F}\u{064E}\u{064D}\u{064C}\u{064B}";
     assert_all_forms_match_icu("arabic-all-marks-reversed", input_reversed);
 }
 
@@ -427,8 +433,8 @@ fn long_sequence_50_above_marks() {
     // 50 CCC 230 marks (all COMBINING GRAVE through COMBINING DOUBLE ACUTE)
     // on one base. This exceeds INLINE_CAP=18 and forces Vec overflow.
     let above_marks: &[char] = &[
-        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}',
-        '\u{0305}', '\u{0306}', '\u{0307}', '\u{0308}', '\u{030B}',
+        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}', '\u{0305}', '\u{0306}',
+        '\u{0307}', '\u{0308}', '\u{030B}',
     ];
     let mut input = String::from("a");
     for i in 0..50 {
@@ -468,8 +474,8 @@ fn long_sequence_100_marks_all_same_ccc() {
     // 100 marks all with CCC 230 to test stable sort on the Vec overflow path.
     // We cycle through distinct characters to verify order is preserved.
     let marks: &[char] = &[
-        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}',
-        '\u{0305}', '\u{0306}', '\u{0307}', '\u{0308}', '\u{030B}',
+        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}', '\u{0305}', '\u{0306}',
+        '\u{0307}', '\u{0308}', '\u{030B}',
     ];
     let mut input = String::from("x");
     for i in 0..100 {
@@ -805,10 +811,9 @@ fn exactly_inline_cap_same_ccc() {
     // This is the boundary case where inline storage is full but overflow
     // is NOT triggered.
     let marks: &[char] = &[
-        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}',
-        '\u{0305}', '\u{0306}', '\u{0307}', '\u{0308}', '\u{030B}',
-        '\u{030C}', '\u{030D}', '\u{030E}', '\u{030F}', '\u{0310}',
-        '\u{0311}', '\u{0312}', '\u{0313}',
+        '\u{0300}', '\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}', '\u{0305}', '\u{0306}',
+        '\u{0307}', '\u{0308}', '\u{030B}', '\u{030C}', '\u{030D}', '\u{030E}', '\u{030F}',
+        '\u{0310}', '\u{0311}', '\u{0312}', '\u{0313}',
     ];
     assert_eq!(marks.len(), 18);
 

@@ -5,10 +5,10 @@
 //! convergence, Turkish mode edge cases, UTF-16 edge cases, derive trait
 //! coverage, and unusual inputs.
 
+use simd_normalizer::CaseFoldMode;
 use simd_normalizer::matching::{
     MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
 };
-use simd_normalizer::CaseFoldMode;
 
 fn default_opts() -> MatchingOptions {
     MatchingOptions::default()
@@ -299,14 +299,14 @@ fn convergence_idempotent_after_normalization() {
     // The pipeline iterates up to 4 passes. Verify that the result
     // of normalizing the normalized output is the same (convergence).
     let tricky_inputs = [
-        "\u{2160}",        // Roman numeral Ⅰ
-        "\u{FB01}",        // fi ligature
-        "\u{00BD}",        // ½
-        "\u{FF21}",        // Fullwidth A
-        "\u{0430}",        // Cyrillic а
-        "\u{00B2}",        // Superscript 2
-        "\u{24D0}",        // Circled a
-        "F\u{0131}LE",     // Mixed case + dotless-i
+        "\u{2160}",                          // Roman numeral Ⅰ
+        "\u{FB01}",                          // fi ligature
+        "\u{00BD}",                          // ½
+        "\u{FF21}",                          // Fullwidth A
+        "\u{0430}",                          // Cyrillic а
+        "\u{00B2}",                          // Superscript 2
+        "\u{24D0}",                          // Circled a
+        "F\u{0131}LE",                       // Mixed case + dotless-i
         "\u{0410}\u{0440}\u{0440}l\u{0435}", // Cyrillic-mixed "apple"
     ];
     for input in &tricky_inputs {
@@ -344,7 +344,10 @@ fn convergence_passes_are_bounded() {
     // and confusables chained together.
     let input = "\u{FF21}\u{FF22}\u{FF23}\u{2160}\u{2161}\u{2162}\u{00BD}\u{FB01}\u{FB02}";
     let result = normalize_for_matching(input, &opts);
-    assert!(!result.is_empty(), "Convergence should produce non-empty output");
+    assert!(
+        !result.is_empty(),
+        "Convergence should produce non-empty output"
+    );
     // Verify idempotence (proof of convergence).
     let again = normalize_for_matching(&result, &opts);
     assert_eq!(result, again, "Result should be stable after convergence");
@@ -450,7 +453,10 @@ fn turkish_mode_dotless_i_in_word() {
 fn utf16_empty_string() {
     let opts = default_opts();
     let utf16 = normalize_for_matching_utf16("", &opts);
-    assert!(utf16.is_empty(), "Empty string should produce empty UTF-16 vec");
+    assert!(
+        utf16.is_empty(),
+        "Empty string should produce empty UTF-16 vec"
+    );
 }
 
 #[test]
@@ -522,12 +528,12 @@ fn utf16_roundtrip_comprehensive() {
         "a",
         "hello",
         "CAFÉ",
-        "\u{1F600}",                          // emoji
-        "\u{1D11E}",                          // musical symbol
+        "\u{1F600}",                         // emoji
+        "\u{1D11E}",                         // musical symbol
         "abc\u{1F600}def\u{1F4A9}ghi",       // mixed
-        "\u{2160}\u{2161}",                   // Roman numerals
-        "\u{FB01}\u{FB02}",                   // ligatures
-        "\u{00BD}",                           // fraction ½
+        "\u{2160}\u{2161}",                  // Roman numerals
+        "\u{FB01}\u{FB02}",                  // ligatures
+        "\u{00BD}",                          // fraction ½
         "\u{0430}\u{0440}\u{0440}l\u{0435}", // Cyrillic-mixed
         "\u{FF21}\u{FF22}\u{FF23}",          // fullwidth
     ];
@@ -535,7 +541,10 @@ fn utf16_roundtrip_comprehensive() {
         let utf16 = normalize_for_matching_utf16(input, &opts);
         let expected = normalize_for_matching(input, &opts);
         if expected.is_empty() {
-            assert!(utf16.is_empty(), "Empty matching result should give empty UTF-16");
+            assert!(
+                utf16.is_empty(),
+                "Empty matching result should give empty UTF-16"
+            );
         } else {
             let decoded = String::from_utf16(&utf16)
                 .unwrap_or_else(|_| panic!("Invalid UTF-16 for input {:?}", input));
@@ -657,7 +666,10 @@ fn only_combining_marks() {
     let result = normalize_for_matching(marks, &opts);
     // Should not panic. Verify idempotence regardless of what the result is.
     let again = normalize_for_matching(&result, &opts);
-    assert_eq!(result, again, "Combining-marks-only result should be idempotent");
+    assert_eq!(
+        result, again,
+        "Combining-marks-only result should be idempotent"
+    );
 }
 
 #[test]
@@ -678,7 +690,10 @@ fn mixed_scripts_latin_cyrillic_cjk() {
     // A string with Latin, Cyrillic, and CJK characters.
     let input = "Hello\u{041F}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}\u{4F60}\u{597D}";
     let result = normalize_for_matching(input, &opts);
-    assert!(!result.is_empty(), "Mixed script input should produce output");
+    assert!(
+        !result.is_empty(),
+        "Mixed script input should produce output"
+    );
     // Idempotence check.
     let again = normalize_for_matching(&result, &opts);
     assert_eq!(result, again, "Mixed script result should be idempotent");
@@ -709,20 +724,20 @@ fn null_character_in_middle() {
 fn single_character_various_scripts() {
     let opts = default_opts();
     let chars = [
-        "a",          // Latin
-        "A",          // Latin upper
-        "\u{0430}",   // Cyrillic а
-        "\u{0410}",   // Cyrillic А
-        "\u{03B1}",   // Greek α
-        "\u{0391}",   // Greek Α
-        "\u{4E00}",   // CJK Unified Ideograph (一)
-        "\u{0627}",   // Arabic Alef
-        "\u{05D0}",   // Hebrew Alef
-        "\u{0E01}",   // Thai Ko Kai
-        "\u{3042}",   // Hiragana あ
-        "\u{30A2}",   // Katakana ア
-        "\u{AC00}",   // Hangul 가
-        "\u{1F600}",  // Emoji
+        "a",         // Latin
+        "A",         // Latin upper
+        "\u{0430}",  // Cyrillic а
+        "\u{0410}",  // Cyrillic А
+        "\u{03B1}",  // Greek α
+        "\u{0391}",  // Greek Α
+        "\u{4E00}",  // CJK Unified Ideograph (一)
+        "\u{0627}",  // Arabic Alef
+        "\u{05D0}",  // Hebrew Alef
+        "\u{0E01}",  // Thai Ko Kai
+        "\u{3042}",  // Hiragana あ
+        "\u{30A2}",  // Katakana ア
+        "\u{AC00}",  // Hangul 가
+        "\u{1F600}", // Emoji
     ];
     for &ch in &chars {
         let result = normalize_for_matching(ch, &opts);
@@ -748,7 +763,10 @@ fn replacement_character() {
     // U+FFFD REPLACEMENT CHARACTER
     let result = normalize_for_matching("\u{FFFD}", &opts);
     let again = normalize_for_matching(&result, &opts);
-    assert_eq!(result, again, "Replacement character result should be idempotent");
+    assert_eq!(
+        result, again,
+        "Replacement character result should be idempotent"
+    );
 }
 
 #[test]
@@ -779,7 +797,10 @@ fn zero_width_chars() {
     let input = "\u{200B}\u{200C}\u{200D}\u{FEFF}";
     let result = normalize_for_matching(input, &opts);
     let again = normalize_for_matching(&result, &opts);
-    assert_eq!(result, again, "Zero-width chars result should be idempotent");
+    assert_eq!(
+        result, again,
+        "Zero-width chars result should be idempotent"
+    );
 }
 
 #[test]
@@ -799,7 +820,10 @@ fn max_unicode_scalar() {
     // U+10FFFF is the maximum Unicode scalar value.
     let result = normalize_for_matching("\u{10FFFF}", &opts);
     let again = normalize_for_matching(&result, &opts);
-    assert_eq!(result, again, "Max Unicode scalar result should be idempotent");
+    assert_eq!(
+        result, again,
+        "Max Unicode scalar result should be idempotent"
+    );
 }
 
 // ===========================================================================
@@ -866,7 +890,7 @@ fn matches_normalized_transitive() {
     // If a matches b and b matches c, then a should match c.
     // Fullwidth A, Latin A, Cyrillic А
     let a = "\u{FF21}"; // Fullwidth A
-    let b = "A";        // Latin A
+    let b = "A"; // Latin A
     let c = "\u{0410}"; // Cyrillic А
 
     let ab = matches_normalized(a, b, &opts);

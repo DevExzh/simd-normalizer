@@ -7,10 +7,10 @@
 //! Run with:
 //!     cargo run --example text_matching
 
-use simd_normalizer::matching::{
-    matches_normalized, normalize_for_matching, normalize_for_matching_utf16, MatchingOptions,
-};
 use simd_normalizer::CaseFoldMode;
+use simd_normalizer::matching::{
+    MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
+};
 
 fn main() {
     println!("=== simd-normalizer: Text Matching Examples ===\n");
@@ -73,7 +73,10 @@ fn section_confusable_detection() {
 
     // Latin 'a' (U+0061) vs Cyrillic 'a' (U+0430)
     let result = matches_normalized("a", "\u{0430}", &opts);
-    println!("  Latin 'a' (U+0061) vs Cyrillic '\u{0430}' (U+0430): match = {}", result);
+    println!(
+        "  Latin 'a' (U+0061) vs Cyrillic '\u{0430}' (U+0430): match = {}",
+        result
+    );
     assert!(result);
 
     // Mixed-script spoofing: "apple" with Cyrillic lookalikes
@@ -89,7 +92,10 @@ fn section_confusable_detection() {
 
     // Identical strings always match (fast path)
     let result = matches_normalized("test", "test", &opts);
-    println!("  Identical strings \"test\" vs \"test\":        match = {}", result);
+    println!(
+        "  Identical strings \"test\" vs \"test\":        match = {}",
+        result
+    );
     assert!(result);
 
     println!();
@@ -108,10 +114,7 @@ fn section_compatibility_matching() {
 
     // Fullwidth 'A' (U+FF21) vs standard 'a'
     let result = matches_normalized("\u{FF21}", "a", &opts);
-    println!(
-        "  Fullwidth 'A' (U+FF21) vs 'a': match = {}",
-        result
-    );
+    println!("  Fullwidth 'A' (U+FF21) vs 'a': match = {}", result);
     assert!(result);
 
     // Fullwidth string vs ASCII
@@ -149,8 +152,8 @@ fn section_normalize_for_indexing() {
         "Cafe",
         "cafe",
         "CAFE",
-        "caf\u{00E9}",         // precomposed e-acute
-        "cafe\u{0301}",        // e + combining acute
+        "caf\u{00E9}",  // precomposed e-acute
+        "cafe\u{0301}", // e + combining acute
     ];
 
     println!("  Case variants normalize to the same form (accents are preserved):");
@@ -285,9 +288,9 @@ fn section_search_scenario() {
     // Simulate indexing: normalize document titles for storage
     let documents = [
         "Resume",
-        "r\u{00E9}sum\u{00E9}",  // resume with accents
+        "r\u{00E9}sum\u{00E9}", // resume with accents
         "RESUME",
-        "R\u{00C9}SUM\u{00C9}",  // uppercase accented
+        "R\u{00C9}SUM\u{00C9}", // uppercase accented
     ];
 
     println!("  Indexing documents:");
@@ -330,15 +333,18 @@ fn section_username_comparison() {
     let existing_key = normalize_for_matching(existing_user, &opts);
 
     let attempts = [
-        "Admin",                             // case variant
-        "ADMIN",                             // all caps
-        "\u{0430}dmin",                      // Cyrillic 'a' (U+0430)
-        "\u{FF21}dmin",                      // Fullwidth 'A' (U+FF21)
-        "adm\u{0131}n",                      // Turkish dotless-i
-        "administrator",                     // different name (should not match)
+        "Admin",         // case variant
+        "ADMIN",         // all caps
+        "\u{0430}dmin",  // Cyrillic 'a' (U+0430)
+        "\u{FF21}dmin",  // Fullwidth 'A' (U+FF21)
+        "adm\u{0131}n",  // Turkish dotless-i
+        "administrator", // different name (should not match)
     ];
 
-    println!("  Existing user: {:?} (key: {:?})\n", existing_user, existing_key);
+    println!(
+        "  Existing user: {:?} (key: {:?})\n",
+        existing_user, existing_key
+    );
 
     for attempt in &attempts {
         let attempt_key = normalize_for_matching(attempt, &opts);
@@ -347,7 +353,11 @@ fn section_username_comparison() {
             "    Attempt {:?} -> key {:?} => {}",
             attempt,
             attempt_key,
-            if blocked { "BLOCKED (confusable)" } else { "allowed" }
+            if blocked {
+                "BLOCKED (confusable)"
+            } else {
+                "allowed"
+            }
         );
     }
 

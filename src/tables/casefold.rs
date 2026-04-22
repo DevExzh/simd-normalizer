@@ -2,6 +2,8 @@
 //
 // Unicode version: 17.0.0
 
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 /// BMP block index for case folding trie.
 pub(crate) static CASEFOLD_BMP_INDEX: &[u16] = &[
     0x0000, 0x0000, 0x0020, 0x0000, 0x0000, 0x0040, 0x0060, 0x0000, 0x0080, 0x00A0, 0x00C0, 0x00E0,

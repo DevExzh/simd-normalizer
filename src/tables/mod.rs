@@ -234,7 +234,8 @@ pub(crate) unsafe fn raw_decomp_trie_value_supplementary(
 /// go through `raw_decomp_trie_value_supplementary` individually. The result
 /// is bit-identical to two serial `raw_decomp_trie_value` calls, but the two
 /// dependent loads overlap so the out-of-order engine can hide an L2 miss.
-#[allow(dead_code)] // retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
+#[allow(dead_code)]
+// retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
 #[inline(always)]
 pub(crate) fn raw_decomp_trie_values_pipelined<const N: usize>(
     cps: &[u32; N],
@@ -789,10 +790,8 @@ mod tests {
                 raw_decomp_trie_value(ch0, DecompForm::Canonical),
                 raw_decomp_trie_value(ch1, DecompForm::Canonical),
             ];
-            let pipelined = raw_decomp_trie_values_pipelined::<2>(
-                &[cp0, cp1],
-                DecompForm::Canonical,
-            );
+            let pipelined =
+                raw_decomp_trie_values_pipelined::<2>(&[cp0, cp1], DecompForm::Canonical);
             assert_eq!(pipelined, serial, "mismatch at cp=U+{:04X}", cp0);
         }
     }

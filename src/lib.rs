@@ -32,11 +32,11 @@ pub mod tables_ext;
 
 pub use casefold::{CaseFoldMode, casefold, casefold_char};
 pub use confusable::{are_confusable, skeleton};
+#[cfg(any(test, feature = "internal-test-api"))]
+pub use matching::normalize_for_matching_legacy;
 pub use matching::{
     MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
 };
-#[cfg(any(test, feature = "internal-test-api"))]
-pub use matching::normalize_for_matching_legacy;
 pub use normalizer::{NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer};
 pub use quick_check::IsNormalized;
 

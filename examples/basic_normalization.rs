@@ -37,8 +37,14 @@ fn section_four_forms() {
     // precomposed e-acute (U+00E9)
     let precomposed = "\u{00E9}";
 
-    println!("Input (decomposed): {:?}  (e + \\u{{0301}} combining acute)", decomposed);
-    println!("Input (precomposed): {:?}  (\\u{{00E9}} e-acute)\n", precomposed);
+    println!(
+        "Input (decomposed): {:?}  (e + \\u{{0301}} combining acute)",
+        decomposed
+    );
+    println!(
+        "Input (precomposed): {:?}  (\\u{{00E9}} e-acute)\n",
+        precomposed
+    );
 
     // NFC: Canonical Decomposition, then Canonical Composition
     // Composes decomposed sequences into precomposed characters where possible.
@@ -55,13 +61,19 @@ fn section_four_forms() {
     // NFKC: Compatibility Decomposition, then Canonical Composition
     // Like NFC but also replaces compatibility characters.
     let nfkc_result = "\u{FB01}".nfkc(); // fi ligature
-    println!("NFKC of {:?} (fi ligature) = {:?}", "\u{FB01}", &*nfkc_result);
+    println!(
+        "NFKC of {:?} (fi ligature) = {:?}",
+        "\u{FB01}", &*nfkc_result
+    );
     println!("  NFKC decomposes compatibility characters: fi ligature -> \"fi\"");
 
     // NFKD: Compatibility Decomposition
     // Like NFD but also replaces compatibility characters.
     let nfkd_result = "\u{FB01}".nfkd();
-    println!("NFKD of {:?} (fi ligature) = {:?}", "\u{FB01}", &*nfkd_result);
+    println!(
+        "NFKD of {:?} (fi ligature) = {:?}",
+        "\u{FB01}", &*nfkd_result
+    );
     println!("  NFKD decomposes compatibility characters without recomposing");
 
     println!();
@@ -133,30 +145,21 @@ fn section_zero_copy() {
     let already_nfc = "caf\u{00E9}";
     let result = normalizer.normalize(already_nfc);
     let borrowed = matches!(&result, Cow::Borrowed(_));
-    println!(
-        "Input: {:?} (already NFC)",
-        already_nfc
-    );
+    println!("Input: {:?} (already NFC)", already_nfc);
     println!("  Result is Cow::Borrowed (zero alloc): {}", borrowed);
 
     // Not NFC -- normalization is needed, so Cow::Owned is returned.
     let not_nfc = "e\u{0301}";
     let result2 = normalizer.normalize(not_nfc);
     let borrowed2 = matches!(&result2, Cow::Borrowed(_));
-    println!(
-        "Input: {:?} (not NFC, needs normalization)",
-        not_nfc
-    );
+    println!("Input: {:?} (not NFC, needs normalization)", not_nfc);
     println!("  Result is Cow::Borrowed (zero alloc): {}", borrowed2);
 
     // Pure ASCII -- always already normalized in every form.
     let ascii = "Hello, world!";
     let result3 = normalizer.normalize(ascii);
     let borrowed3 = matches!(&result3, Cow::Borrowed(_));
-    println!(
-        "Input: {:?} (pure ASCII)",
-        ascii
-    );
+    println!("Input: {:?} (pure ASCII)", ascii);
     println!("  Result is Cow::Borrowed (zero alloc): {}", borrowed3);
 
     println!();
@@ -188,8 +191,14 @@ fn section_quick_check() {
         let nfd_qc = nfd.quick_check(input);
         let nfd_is = nfd.is_normalized(input);
         println!("  {:?} ({})", input, desc);
-        println!("    NFC  quick_check={:?}, is_normalized={}", nfc_qc, nfc_is);
-        println!("    NFD  quick_check={:?}, is_normalized={}", nfd_qc, nfd_is);
+        println!(
+            "    NFC  quick_check={:?}, is_normalized={}",
+            nfc_qc, nfc_is
+        );
+        println!(
+            "    NFD  quick_check={:?}, is_normalized={}",
+            nfd_qc, nfd_is
+        );
     }
 
     println!();
@@ -208,8 +217,8 @@ fn section_normalize_to() {
     let mut buf = String::with_capacity(256);
 
     let inputs = [
-        "e\u{0301}",      // decomposed e-acute
-        "caf\u{00E9}",    // already NFC
+        "e\u{0301}",        // decomposed e-acute
+        "caf\u{00E9}",      // already NFC
         "\u{1100}\u{1161}", // Hangul jamo L+V -> syllable
     ];
 
@@ -271,7 +280,10 @@ fn section_real_world_examples() {
     let nfkc_fw = fullwidth.nfkc();
     println!("    NFKC: {:?}  (normalized to standard ASCII)", &*nfkc_fw);
     let nfc_fw = fullwidth.nfc();
-    println!("    NFC:  {:?}  (canonical normalization does NOT change compatibility chars)", &*nfc_fw);
+    println!(
+        "    NFC:  {:?}  (canonical normalization does NOT change compatibility chars)",
+        &*nfc_fw
+    );
 
     // -- fi ligature (compatibility decomposition) --
     println!("\n  [fi ligature (compatibility decomposition)]");
@@ -287,8 +299,14 @@ fn section_real_world_examples() {
     let superscripts = "\u{00B9}\u{00B2}\u{00B3}";
     println!("    Input: {:?}  (superscript 1, 2, 3)", superscripts);
     println!("    NFC:  {:?}  (unchanged)", &*superscripts.nfc());
-    println!("    NFKC: {:?}  (decomposed to plain digits)", &*superscripts.nfkc());
-    println!("    NFKD: {:?}  (decomposed to plain digits)", &*superscripts.nfkd());
+    println!(
+        "    NFKC: {:?}  (decomposed to plain digits)",
+        &*superscripts.nfkc()
+    );
+    println!(
+        "    NFKD: {:?}  (decomposed to plain digits)",
+        &*superscripts.nfkd()
+    );
 
     // -- Comparison: canonical vs compatibility --
     println!("\n  [Key takeaway]");

@@ -9,12 +9,12 @@
 //! full-sweep tests iterate every valid scalar and are marked `#[ignore]`,
 //! matching the convention in `tests/exhaustive.rs`.
 
-use simd_normalizer::{
-    CaseFoldMode, IsNormalized, UnicodeNormalization, are_confusable, casefold, casefold_char,
-    nfc, nfd, nfkc, nfkd, skeleton,
-};
 use simd_normalizer::matching::{
     MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
+};
+use simd_normalizer::{
+    CaseFoldMode, IsNormalized, UnicodeNormalization, are_confusable, casefold, casefold_char, nfc,
+    nfd, nfkc, nfkd, skeleton,
 };
 
 /// Iterator over valid Unicode scalars in `0..=0x10FFFF`, skipping surrogates.
@@ -167,7 +167,10 @@ fn panic_safety_quick_check_all_forms_all_scalars_spot_check() {
         let s: String = c.to_string();
         // quick_check must produce a valid IsNormalized discriminant.
         let qc = nfc().quick_check(&s);
-        let _ = matches!(qc, IsNormalized::Yes | IsNormalized::No | IsNormalized::Maybe);
+        let _ = matches!(
+            qc,
+            IsNormalized::Yes | IsNormalized::No | IsNormalized::Maybe
+        );
         let _ = nfd().quick_check(&s);
         let _ = nfkc().quick_check(&s);
         let _ = nfkd().quick_check(&s);
@@ -212,9 +215,8 @@ fn panic_safety_matching_full_sweep() {
         let s: String = c.to_string();
         let _ = normalize_for_matching(&s, &opts);
         let out = normalize_for_matching_utf16(&s, &opts);
-        String::from_utf16(&out).unwrap_or_else(|_| {
-            panic!("ill-formed UTF-16 for scalar U+{:04X}", c as u32)
-        });
+        String::from_utf16(&out)
+            .unwrap_or_else(|_| panic!("ill-formed UTF-16 for scalar U+{:04X}", c as u32));
         let _ = matches_normalized(&s, &s, &opts);
         let _ = are_confusable(&s, &s);
     }

@@ -83,13 +83,10 @@ impl CodePointTrie {
     /// # Safety
     /// Both `cp0` and `cp1` must be `< 0x10000`, and the trie tables must be
     /// well-formed (guaranteed for generated tables).
-    #[allow(dead_code)] // retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
+    #[allow(dead_code)]
+    // retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
     #[inline(always)]
-    pub(crate) unsafe fn get_two_bmp_pipelined_unchecked(
-        &self,
-        cp0: u32,
-        cp1: u32,
-    ) -> [u32; 2] {
+    pub(crate) unsafe fn get_two_bmp_pipelined_unchecked(&self, cp0: u32, cp1: u32) -> [u32; 2] {
         debug_assert!(cp0 < 0x10000 && cp1 < 0x10000);
         let idx0 = (cp0 >> BMP_SHIFT) as usize;
         let idx1 = (cp1 >> BMP_SHIFT) as usize;

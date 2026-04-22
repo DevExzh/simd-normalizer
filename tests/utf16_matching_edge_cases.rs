@@ -27,7 +27,11 @@ fn default_opts() -> MatchingOptions {
 fn utf16_supplementary_emits_exactly_one_surrogate_pair() {
     // U+1F600 GRINNING FACE — single scalar, exactly two UTF-16 code units.
     let out = normalize_for_matching_utf16("\u{1F600}", &default_opts());
-    assert_eq!(out.len(), 2, "supplementary char must be exactly a surrogate pair");
+    assert_eq!(
+        out.len(),
+        2,
+        "supplementary char must be exactly a surrogate pair"
+    );
     assert!(
         (0xD800..=0xDBFF).contains(&out[0]),
         "first unit must be a high surrogate, got {:04X}",
@@ -39,7 +43,10 @@ fn utf16_supplementary_emits_exactly_one_surrogate_pair() {
         out[1]
     );
     let decoded = String::from_utf16(&out).expect("valid surrogate pair");
-    assert_eq!(decoded, normalize_for_matching("\u{1F600}", &default_opts()));
+    assert_eq!(
+        decoded,
+        normalize_for_matching("\u{1F600}", &default_opts())
+    );
 }
 
 #[test]

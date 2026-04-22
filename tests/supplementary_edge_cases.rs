@@ -251,7 +251,10 @@ fn musical_symbols_is_normalized_checks() {
     // The decomposed form IS normalized in all forms (composition exclusion).
     let decomposed = "\u{1D157}\u{1D165}";
     assert!(decomposed.is_nfd(), "decomposed half note should be NFD");
-    assert!(decomposed.is_nfc(), "decomposed half note should be NFC (composition exclusion)");
+    assert!(
+        decomposed.is_nfc(),
+        "decomposed half note should be NFC (composition exclusion)"
+    );
     assert!(decomposed.is_nfkd(), "decomposed half note should be NFKD");
     assert!(decomposed.is_nfkc(), "decomposed half note should be NFKC");
     assert_is_normalized_matches_icu(decomposed);
@@ -319,7 +322,13 @@ fn cjk_compat_supplement_canonical_decomposition() {
 #[test]
 fn cjk_compat_supplement_is_not_normalized() {
     // The compatibility ideograph forms are not normalized in any form.
-    let compat_chars = ["\u{2F800}", "\u{2F801}", "\u{2F802}", "\u{2F804}", "\u{2F80A}"];
+    let compat_chars = [
+        "\u{2F800}",
+        "\u{2F801}",
+        "\u{2F802}",
+        "\u{2F804}",
+        "\u{2F80A}",
+    ];
     for input in &compat_chars {
         assert!(!input.is_nfd(), "{:?} should not be NFD", input);
         assert!(!input.is_nfc(), "{:?} should not be NFC", input);
@@ -746,10 +755,17 @@ fn cross_validate_supplementary_idempotence() {
     // Normalization should be idempotent: normalizing the output again
     // should return the same string.
     let test_chars = [
-        "\u{1D15E}", "\u{1D15F}", "\u{1D160}",
-        "\u{2F800}", "\u{2F801}", "\u{2F804}",
-        "\u{1D400}", "\u{1D41A}", "\u{1D504}",
-        "\u{10400}", "\u{10428}",
+        "\u{1D15E}",
+        "\u{1D15F}",
+        "\u{1D160}",
+        "\u{2F800}",
+        "\u{2F801}",
+        "\u{2F804}",
+        "\u{1D400}",
+        "\u{1D41A}",
+        "\u{1D504}",
+        "\u{10400}",
+        "\u{10428}",
     ];
 
     for input in &test_chars {
@@ -776,7 +792,10 @@ fn cross_validate_nfc_subset_nfkc() {
     // For supplementary chars: NFKC(x) == NFKC(NFC(x))
     // i.e., NFC does not interfere with further NFKC normalization.
     let test_inputs = [
-        "\u{1D15E}", "\u{2F800}", "\u{1D400}", "\u{10400}",
+        "\u{1D15E}",
+        "\u{2F800}",
+        "\u{1D400}",
+        "\u{10400}",
         "hello \u{1D15E} world",
         "\u{1D400}\u{1D41A}\u{1D504}",
     ];

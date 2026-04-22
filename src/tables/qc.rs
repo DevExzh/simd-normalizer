@@ -3,6 +3,7 @@
 // Unicode version: 17.0.0
 
 #![allow(dead_code)]
+#![cfg_attr(rustfmt, rustfmt::skip)]
 
 // Quick-check values: Y=0, M=1, N=2.
 

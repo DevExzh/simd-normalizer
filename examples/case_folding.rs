@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use simd_normalizer::{casefold, casefold_char, CaseFoldMode};
+use simd_normalizer::{CaseFoldMode, casefold, casefold_char};
 
 fn main() {
     println!("=== simd-normalizer: Case Folding Examples ===\n");
@@ -36,7 +36,10 @@ fn section_standard_folding() {
         ("Stra\u{00DF}e", "German Strasse with sharp s (U+00DF)"),
         ("Str\u{00F6}me", "German with o-umlaut (U+00F6)"),
         ("CAF\u{00C9}", "CAFE with precomposed E-acute (U+00C9)"),
-        ("\u{0391}\u{03B8}\u{03AE}\u{03BD}\u{03B1}", "Greek: mixed case"),
+        (
+            "\u{0391}\u{03B8}\u{03AE}\u{03BD}\u{03B1}",
+            "Greek: mixed case",
+        ),
     ];
 
     for &(input, description) in examples {
@@ -74,9 +77,18 @@ fn section_turkish_folding() {
     let dotted_i_input = "\u{0130}stanbul";
     let standard_dotted = casefold(dotted_i_input, CaseFoldMode::Standard);
     let turkish_dotted = casefold(dotted_i_input, CaseFoldMode::Turkish);
-    println!("  Input:            {:?}  (starts with dotted capital I, U+0130)", dotted_i_input);
-    println!("  Standard folded:  {:?}  (unchanged -- no simple single-char fold)", &*standard_dotted);
-    println!("  Turkish folded:   {:?}  (dotted I -> i)\n", &*turkish_dotted);
+    println!(
+        "  Input:            {:?}  (starts with dotted capital I, U+0130)",
+        dotted_i_input
+    );
+    println!(
+        "  Standard folded:  {:?}  (unchanged -- no simple single-char fold)",
+        &*standard_dotted
+    );
+    println!(
+        "  Turkish folded:   {:?}  (dotted I -> i)\n",
+        &*turkish_dotted
+    );
 
     // Non-I characters fold identically in both modes
     let other = "Ankara";
@@ -84,7 +96,10 @@ fn section_turkish_folding() {
     let tr_other = casefold(other, CaseFoldMode::Turkish);
     println!("  Input:            {:?}", other);
     println!("  Standard folded:  {:?}", &*std_other);
-    println!("  Turkish folded:   {:?}  (same -- no I involved)", &*tr_other);
+    println!(
+        "  Turkish folded:   {:?}  (same -- no I involved)",
+        &*tr_other
+    );
 
     println!();
 }
@@ -112,10 +127,7 @@ fn section_char_level() {
     for &(ch, description) in chars {
         let folded = casefold_char(ch, CaseFoldMode::Standard);
         let changed = if folded != ch { "changed" } else { "unchanged" };
-        println!(
-            "  {:?} -> {:?}  ({}, {})",
-            ch, folded, description, changed
-        );
+        println!("  {:?} -> {:?}  ({}, {})", ch, folded, description, changed);
     }
 
     println!("\n  Turkish-specific character folding:");
@@ -206,19 +218,13 @@ fn section_case_insensitive_comparison() {
     println!("  Standard mode comparisons:\n");
     for &(a, b, description) in pairs {
         let equal = eq_ignore_case(a, b, CaseFoldMode::Standard);
-        println!(
-            "    {:?} == {:?}  =>  {}  ({})",
-            a,
-            b,
-            equal,
-            description
-        );
+        println!("    {:?} == {:?}  =>  {}  ({})", a, b, equal, description);
     }
 
     println!("\n  Turkish mode -- the I problem:\n");
     let a = "Istanbul";
     let b = "\u{0131}stanbul"; // with dotless i
-    let c = "istanbul";        // with regular i
+    let c = "istanbul"; // with regular i
 
     println!("    Comparing {:?} with {:?}:", a, b);
     println!(

@@ -2,6 +2,8 @@
 //
 // Unicode version: 17.0.0
 
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 // Fused CCC + QC trie: (ccc << 8) | (nfkd_qc << 6) | (nfkc_qc << 4) | (nfd_qc << 2) | nfc_qc
 // QC values: Y=0, M=1, N=2.
 

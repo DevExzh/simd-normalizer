@@ -5,12 +5,12 @@
 //! section 4: every public entry point is called on `""` and must return
 //! the expected empty-equivalent value.
 
+use simd_normalizer::matching::{
+    MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
+};
 use simd_normalizer::{
     CaseFoldMode, IsNormalized, NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer,
     UnicodeNormalization, are_confusable, casefold, nfc, nfd, nfkc, nfkd, skeleton,
-};
-use simd_normalizer::matching::{
-    MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,
 };
 use std::borrow::Cow;
 

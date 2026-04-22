@@ -103,5 +103,44 @@ FAM_ORDER+=(task_clock cycles instructions branches)
 WORKLOADS=(cjk arabic hangul emoji mixed)
 
 # Remaining sections wired up in Tasks B2 and B3.
-echo "resolved=${RESOLVED[*]}" >&2
-echo "pre-flight OK; vendor=$VENDOR; driver build pending" >&2
+
+# ---- build ---------------------------------------------------------------
+cargo build --release --bin perf_driver >&2
+
+# ---- measurement --------------------------------------------------------
+REPEATS="${DIAG_REPEATS:-10}"
+SMOKE="${DIAG_SMOKE:-}"
+if [[ -n "$SMOKE" ]]; then
+  REPEATS=1
+fi
+
+RESULTS_DIR="$(mktemp -d -t diag-perf-XXXXXX)"
+echo "results_dir=$RESULTS_DIR repeats=$REPEATS smoke=${SMOKE:-0}" >&2
+
+for w in "${WORKLOADS[@]}"; do
+  OUT="$RESULTS_DIR/${w}.csv"
+  echo "measuring workload=$w -> $OUT" >&2
+  # perf stat:
+  #   -r N            : repeat N runs (stddev reported in CSV)
+  #   -x,             : comma-separated output, one row per event per run
+  #   --log-fd 3      : send perf's own CSV to fd 3 (our file); keep driver's
+  #                     stderr out of the CSV.
+  DIAG_SMOKE="$SMOKE" perf stat \
+    -r "$REPEATS" \
+    -x, \
+    -e "$EVENT_CSV" \
+    --log-fd 3 \
+    target/release/perf_driver "$w" \
+    3>"$OUT" \
+    >/dev/null 2>>"$RESULTS_DIR/${w}.driver.log"
+done
+
+# Export for Part C (report generation).
+export RESULTS_DIR FAM_ORDER RESOLVED VENDOR
+# `FAM_ORDER` is an indexed array → serialize to a file Part C can read.
+printf '%s\n' "${FAM_ORDER[@]}" > "$RESULTS_DIR/fam_order.txt"
+for fam in "${!RESOLVED[@]}"; do
+  printf '%s\t%s\n' "$fam" "${RESOLVED[$fam]}" >> "$RESULTS_DIR/resolved.tsv"
+done
+echo "measurement done" >&2
+# Part C appended below this line.

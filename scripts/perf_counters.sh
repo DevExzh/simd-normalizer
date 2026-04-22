@@ -38,22 +38,42 @@ declare -A EVENT_INTEL=(
   [lsd_uops]="lsd.uops"
 )
 declare -A EVENT_AMD=(
-  [dtlb_walks]="ls_l1_d_tlb_miss.tlb_reload"
-  [l1d_miss]="ls_dmnd_fills_from_sys.ls_mabresp_lcl_l2"
-  [l2_miss]="ls_dmnd_fills_from_sys.ls_mabresp_lcl_l3"
-  [l3_miss]="ls_dmnd_fills_from_sys.ls_mabresp_dram_io_far"
+  # Zen-5 event names verified on AMD Ryzen AI 9 HX PRO 370 (perf 6.12).
+  # Rationale per family (umbrella spec §Counter sets):
+  #   dtlb_walks     : L1-dTLB miss that also missed L2-dTLB -> forces a
+  #                    page-table walk. `.all` alone would also count
+  #                    L2-dTLB hits (no walk), which is noisier.
+  #   l1d_miss       : all demand L1D fills (every fill implies a miss).
+  #   l2_miss        : data-cache request that missed in L2 (served from
+  #                    L3 or beyond).
+  #   l3_miss        : demand fill from local-node DRAM -> L3 miss.
+  #   backend_stalls : pipeline slots where the backend could not accept
+  #                    uops. Name survived from Zen-4.
+  #   br_misp        : retired mispredicted branches (unchanged).
+  #   opcache_uops   : uops dispatched from op-cache (renamed from Zen-4
+  #                    `de_src_op_dist.opcache`).
+  #   decoder_uops   : uops dispatched from x86 decoder (renamed likewise).
+  [dtlb_walks]="ls_l1_d_tlb_miss.all_l2_miss"
+  [l1d_miss]="ls_dmnd_fills_from_sys.all"
+  [l2_miss]="l2_cache_req_stat.ls_rd_blk_c"
+  [l3_miss]="ls_dmnd_fills_from_sys.dram_io_near"
   [backend_stalls]="de_no_dispatch_per_slot.backend_stalls"
   [br_misp]="ex_ret_brn_misp"
-  [opcache_uops]="de_src_op_dist.opcache"
-  [decoder_uops]="de_src_op_dist.decoder"
+  [opcache_uops]="de_src_op_disp.op_cache"
+  [decoder_uops]="de_src_op_disp.x86_decoder"
 )
 
 declare -n EVENT_MAP=EVENT_${VENDOR^^}   # Bash nameref: EVENT_INTEL or EVENT_AMD
 
-# probe_event "<name>" -> echoes the event name if perf-list finds it, else "n/a".
+# probe_event "<name>" -> echoes the event name iff perf-stat accepts it,
+# else "n/a". Uses `perf stat -e NAME --no-big-num true` as the canonical
+# accept test (the same parser perf-stat will invoke during measurement).
+# Substring matching against `perf list` output is insufficient on Zen 5,
+# where short stems like `ls_l1_d_tlb_miss.tlb_reload` collide with longer
+# siblings that perf-stat then rejects as "Bad event name".
 probe_event() {
   local ev="$1"
-  if perf list "$ev" 2>/dev/null | grep -qF "$ev"; then
+  if perf stat -e "$ev" --no-big-num true >/dev/null 2>&1; then
     printf '%s' "$ev"
   else
     printf 'n/a'

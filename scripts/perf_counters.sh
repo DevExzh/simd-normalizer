@@ -204,3 +204,86 @@ for w in "${WORKLOADS[@]}"; do
     echo
   } >> "$REPORT"
 done
+
+# ---- hypothesis verdict table -------------------------------------------
+verdict() {
+  local w="$1" hyp="$2"
+  local csv="$RESULTS_DIR/${w}.csv"
+  med_of() {
+    awk -F, -v ev="$1" '$3==ev && $1 ~ /^[0-9.]+$/ {print $1}' "$csv" \
+      | sort -n \
+      | awk '{ a[NR]=$1 } END {
+          n=NR; if (n==0) exit
+          if (n%2==1) print a[(n+1)/2]; else print (a[n/2]+a[n/2+1])/2
+        }'
+  }
+  local cycles insn
+  cycles=$(med_of cycles); insn=$(med_of instructions)
+  case "$hyp" in
+    c_huge)
+      local ev="${RESOLVED[dtlb_walks]}"
+      [[ "$ev" == "n/a" || -z "$cycles" ]] && { echo "?"; return; }
+      local m; m=$(med_of "$ev"); [[ -z "$m" ]] && { echo "?"; return; }
+      awk -v m="$m" -v c="$cycles" 'BEGIN{ if (c==0){print "?"; exit} print (m/c > 0.02) ? "✓" : "✗" }'
+      ;;
+    a2_mphf)
+      local ev2="${RESOLVED[l2_miss]}" ev3="${RESOLVED[l3_miss]}"
+      [[ "$ev2" == "n/a" || "$ev3" == "n/a" || -z "$insn" ]] && { echo "?"; return; }
+      local m2 m3; m2=$(med_of "$ev2"); m3=$(med_of "$ev3")
+      [[ -z "$m2" || -z "$m3" ]] && { echo "?"; return; }
+      awk -v a="$m2" -v b="$m3" -v i="$insn" 'BEGIN{ if (i==0){print "?"; exit} print ((a+b)/i > 0.005) ? "✓" : "✗" }'
+      ;;
+    b_fused)
+      local ev="${RESOLVED[backend_stalls]}"
+      [[ "$ev" == "n/a" || -z "$cycles" ]] && { echo "?"; return; }
+      local m; m=$(med_of "$ev"); [[ -z "$m" ]] && { echo "?"; return; }
+      awk -v m="$m" -v c="$cycles" 'BEGIN{ if (c==0){print "?"; exit} print (m/c > 0.15) ? "✓" : "✗" }'
+      ;;
+    e1_prescan)
+      local ev="${RESOLVED[br_misp]}"
+      local br; br=$(med_of branches)
+      [[ "$ev" == "n/a" || -z "$br" ]] && { echo "?"; return; }
+      local m; m=$(med_of "$ev"); [[ -z "$m" ]] && { echo "?"; return; }
+      awk -v m="$m" -v b="$br" 'BEGIN{ if (b==0){print "?"; exit} print (m/b > 0.03) ? "✓" : "✗" }'
+      ;;
+    d3_vpternlogd)
+      local num_ev den_ev_alt
+      if [[ "$VENDOR" == intel ]]; then
+        num_ev="${RESOLVED[dsb_uops]}"; den_ev_alt="${RESOLVED[lsd_uops]}"
+      else
+        num_ev="${RESOLVED[opcache_uops]}"; den_ev_alt="${RESOLVED[decoder_uops]}"
+      fi
+      [[ "$num_ev" == "n/a" || "$den_ev_alt" == "n/a" ]] && { echo "?"; return; }
+      local mn md; mn=$(med_of "$num_ev"); md=$(med_of "$den_ev_alt")
+      [[ -z "$mn" || -z "$md" ]] && { echo "?"; return; }
+      awk -v a="$mn" -v b="$md" 'BEGIN{ t=a+b; if (t==0){print "?"; exit} print (a/t < 0.75) ? "✓" : "✗" }'
+      ;;
+  esac
+}
+
+{
+  echo "## Hypothesis verdict (Phase 2 kill-criteria)"
+  echo
+  echo "> Thresholds: C huge-pages dtlb/cyc > 2%; A2 MPHF (l2+l3)/insn > 0.5% (simplified from the umbrella's latency-weighted form); B fused backend_stalls/cyc > 15%; E1 pre-scan br_misp/branches > 3%; D3 vpternlogd dsb_ratio < 75%."
+  echo
+  echo "| hypothesis (child) | cjk | arabic | hangul | emoji | mixed |"
+  echo "| --- | :---: | :---: | :---: | :---: | :---: |"
+  for row in \
+    "C huge-pages:c_huge" \
+    "A2 MPHF:a2_mphf" \
+    "B fused decode:b_fused" \
+    "E1 pre-scan:e1_prescan" \
+    "D3 vpternlogd:d3_vpternlogd"
+  do
+    label="${row%%:*}"; hyp="${row#*:}"
+    printf "| %s |" "$label"
+    for w in "${WORKLOADS[@]}"; do
+      v=$(verdict "$w" "$hyp")
+      printf " %s |" "$v"
+    done
+    echo
+  done
+  echo
+} >> "$REPORT"
+
+echo "report written: $REPORT" >&2

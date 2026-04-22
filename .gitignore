@@ -4,3 +4,5 @@
 /fuzz/target
 /fuzz/corpus
 /fuzz/artifacts
+/.worktrees/
+__pycache__

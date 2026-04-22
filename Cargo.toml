@@ -7,6 +7,9 @@ license = "Apache-2.0"
 readme = "README.md"
 keywords = ["unicode", "normalization", "simd", "nfc", "nfd"]
 categories = ["text-processing", "no-std"]
+# `benches/perf_driver.rs` is a [[bin]] (perf-counter driver), not a bench.
+# Disable auto-bench discovery so Cargo doesn't double-register the file.
+autobenches = false
 
 [features]
 default = ["std"]
@@ -31,3 +34,6 @@ harness = false
 [[bin]]
 name = "perf_driver"
 path = "benches/perf_driver.rs"
+bench = false
+test = false
+doc = false

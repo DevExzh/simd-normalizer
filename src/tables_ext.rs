@@ -29,3 +29,22 @@ pub fn needs_starter_shadow_bit(tv: u32) -> bool {
 pub fn legacy_needs_starter_shadow(ch: char) -> bool {
     crate::tables::lookup_ccc(ch) != 0
 }
+
+/// Packed CCC+QC bit-shift constants (crate-private; mirrored here for
+/// integration tests that audit the safe-lead byte set). Values are kept
+/// in lockstep with the `pub(crate)` originals in `src/tables/mod.rs`.
+pub const CCC_QC_NFC_SHIFT: u32 = crate::tables::CCC_QC_NFC_SHIFT;
+/// See [`CCC_QC_NFC_SHIFT`].
+pub const CCC_QC_NFD_SHIFT: u32 = crate::tables::CCC_QC_NFD_SHIFT;
+/// See [`CCC_QC_NFC_SHIFT`].
+pub const CCC_QC_NFKC_SHIFT: u32 = crate::tables::CCC_QC_NFKC_SHIFT;
+/// See [`CCC_QC_NFC_SHIFT`].
+pub const CCC_QC_NFKD_SHIFT: u32 = crate::tables::CCC_QC_NFKD_SHIFT;
+
+/// Look up `(ccc, qc_bits)` for a character under the given form shift.
+/// `qc_bits` is 0 for `Yes`, nonzero for `No`/`Maybe`. See
+/// `src/tables/mod.rs:409` for the authoritative definition.
+#[inline]
+pub fn lookup_ccc_qc(c: char, qc_shift: u32) -> (u8, u8) {
+    crate::tables::lookup_ccc_qc(c, qc_shift)
+}

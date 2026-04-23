@@ -5,7 +5,9 @@
 //! returns `u64` directly — no movemask gymnastics needed.
 
 #[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::{__m512i, _mm512_cmpge_epu8_mask, _mm512_loadu_si512, _mm512_set1_epi8};
+use core::arch::x86_64::{
+    __m512i, _mm512_cmpge_epu8_mask, _mm512_loadu_si512, _mm512_set1_epi8,
+};
 
 /// Number of bytes per AVX-512 register.
 const LANES: usize = 64;

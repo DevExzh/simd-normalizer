@@ -23,12 +23,31 @@ mod hangul;
 pub mod matching;
 pub mod normalizer;
 mod quick_check;
+#[cfg(not(any(test, feature = "internal-test-api")))]
 pub(crate) mod simd;
+
+#[cfg(any(test, feature = "internal-test-api"))]
+#[doc(hidden)]
+pub mod simd;
 mod tables;
 mod utf8;
 
 #[cfg(any(test, feature = "internal-test-api"))]
 pub mod tables_ext;
+
+/// Crate-private SIMD wrappers re-exported for integration tests.
+/// Not for downstream use; semver-exempt; tracks `simd::scan_chunk*`
+/// signatures exactly.
+#[cfg(any(test, feature = "internal-test-api"))]
+pub mod simd_test_api {
+    /// See [`crate::simd::scan_chunk`].
+    /// # Safety
+    /// `ptr` must be valid for 64 bytes of read access.
+    #[inline]
+    pub unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
+        unsafe { crate::simd::scan_chunk(ptr, bound) }
+    }
+}
 
 pub use casefold::{CaseFoldMode, casefold, casefold_char};
 pub use confusable::{are_confusable, skeleton};
@@ -39,6 +58,12 @@ pub use matching::{
 };
 pub use normalizer::{NfcNormalizer, NfdNormalizer, NfkcNormalizer, NfkdNormalizer};
 pub use quick_check::IsNormalized;
+
+#[cfg(feature = "quick_check_oracle")]
+pub use crate::quick_check::{
+    quick_check_nfc, quick_check_nfc_oracle, quick_check_nfd, quick_check_nfd_oracle,
+    quick_check_nfkc, quick_check_nfkc_oracle, quick_check_nfkd, quick_check_nfkd_oracle,
+};
 
 /// Return a pre-built NFC normalizer.
 #[inline]

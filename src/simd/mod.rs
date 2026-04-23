@@ -18,17 +18,44 @@
 //! - other: scalar fallback
 
 pub(crate) mod prefetch;
-pub(crate) mod scalar;
 pub(crate) mod scanner;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(not(any(test, feature = "internal-test-api")))]
+pub(crate) mod scalar;
+
+#[cfg(any(test, feature = "internal-test-api"))]
+#[doc(hidden)]
+pub mod scalar;
+
+#[cfg(all(
+    target_arch = "x86_64",
+    not(any(test, feature = "internal-test-api"))
+))]
 pub(crate) mod x86_64;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "x86_64", any(test, feature = "internal-test-api")))]
+#[doc(hidden)]
+pub mod x86_64;
+
+#[cfg(all(
+    target_arch = "aarch64",
+    not(any(test, feature = "internal-test-api"))
+))]
 pub(crate) mod aarch64;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "aarch64", any(test, feature = "internal-test-api")))]
+#[doc(hidden)]
+pub mod aarch64;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    not(any(test, feature = "internal-test-api"))
+))]
 pub(crate) mod wasm32;
+
+#[cfg(all(target_arch = "wasm32", any(test, feature = "internal-test-api")))]
+#[doc(hidden)]
+pub mod wasm32;
 
 // ---------------------------------------------------------------------------
 // SimdVTable -- extensible dispatch table for all SIMD operations

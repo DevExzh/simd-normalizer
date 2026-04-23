@@ -18,6 +18,10 @@ alloc = []
 # Re-exports crate-private table accessors for integration tests. Not for
 # downstream use; semver-exempt; may change or disappear without warning.
 internal-test-api = []
+# Forces quick_check_impl onto the pre-classifier decode path so the
+# differential proptest can compare Layer-1+2 output against the oracle.
+# Not for downstream use; semver-exempt.
+quick_check_oracle = []
 
 [dev-dependencies]
 proptest = "1"

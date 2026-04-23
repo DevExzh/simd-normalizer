@@ -302,23 +302,213 @@ fn quick_check_scalar(
 //       Same as NFKC threshold, but Hangul and some kana decompose.
 
 /// Quick-check whether `input` is in NFC.
+#[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfc(input: &str) -> IsNormalized {
     quick_check_impl(input, tables::CCC_QC_NFC_SHIFT, 0xCC, 0x0300, true, true)
 }
 
+/// Quick-check whether `input` is in NFC.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfc(input: &str) -> IsNormalized {
+    quick_check_impl(input, tables::CCC_QC_NFC_SHIFT, 0xCC, 0x0300, true, true)
+}
+
 /// Quick-check whether `input` is in NFD.
+#[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfd(input: &str) -> IsNormalized {
     quick_check_impl(input, tables::CCC_QC_NFD_SHIFT, 0xC3, 0x00C0, false, false)
 }
 
+/// Quick-check whether `input` is in NFD.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfd(input: &str) -> IsNormalized {
+    quick_check_impl(input, tables::CCC_QC_NFD_SHIFT, 0xC3, 0x00C0, false, false)
+}
+
 /// Quick-check whether `input` is in NFKC.
+#[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfkc(input: &str) -> IsNormalized {
     quick_check_impl(input, tables::CCC_QC_NFKC_SHIFT, 0xC0, 0x00A0, true, true)
 }
 
+/// Quick-check whether `input` is in NFKC.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfkc(input: &str) -> IsNormalized {
+    quick_check_impl(input, tables::CCC_QC_NFKC_SHIFT, 0xC0, 0x00A0, true, true)
+}
+
 /// Quick-check whether `input` is in NFKD.
+#[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfkd(input: &str) -> IsNormalized {
     quick_check_impl(input, tables::CCC_QC_NFKD_SHIFT, 0xC0, 0x00A0, false, false)
+}
+
+/// Quick-check whether `input` is in NFKD.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfkd(input: &str) -> IsNormalized {
+    quick_check_impl(input, tables::CCC_QC_NFKD_SHIFT, 0xC0, 0x00A0, false, false)
+}
+
+// ---------------------------------------------------------------------------
+// Oracle (slow-path) implementation for differential testing.
+// ---------------------------------------------------------------------------
+//
+// The oracle deliberately routes every flagged byte through the Layer-2
+// decode + range + trie path, i.e. it calls `simd::scan_chunk` (no
+// safe_lead_mask) and omits the short-circuit. It exists so that
+// tests/quick_check_fastpath_equivalence.rs can assert
+// `quick_check_X(s) == quick_check_X_oracle(s)` for every form, 8192
+// cases per form, on arbitrary Unicode input.
+
+#[cfg(feature = "quick_check_oracle")]
+#[inline]
+fn quick_check_impl_oracle(
+    input: &str,
+    qc_shift: u32,
+    simd_bound: u8,
+    safe_below: u32,
+    hangul_safe: bool,
+    kana_safe: bool,
+) -> IsNormalized {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+
+    if len < 64 {
+        return quick_check_scalar(input, qc_shift, safe_below, hangul_safe, kana_safe);
+    }
+
+    let ptr = bytes.as_ptr();
+    let mut last_ccc: u8 = 0;
+    let mut result = IsNormalized::Yes;
+    let mut processed_up_to: usize = 0;
+    let mut pos: usize = 0;
+
+    while pos + 64 <= len {
+        // SAFETY: pos + 64 <= len, so ptr.add(pos) is valid for 64 bytes.
+        let mask = unsafe { simd::scan_chunk(ptr.add(pos), simd_bound) };
+        let chunk_end = pos + 64;
+
+        if mask == 0 {
+            last_ccc = 0;
+            processed_up_to = chunk_end;
+            pos = chunk_end;
+            continue;
+        }
+
+        let chunk_start = pos;
+        let mut chunk_mask = mask;
+        while chunk_mask != 0 {
+            let bit_pos = chunk_mask.trailing_zeros() as usize;
+            chunk_mask &= chunk_mask.wrapping_sub(1);
+
+            let byte_pos = chunk_start + bit_pos;
+            if byte_pos < processed_up_to {
+                continue;
+            }
+            if byte_pos > processed_up_to {
+                last_ccc = 0;
+            }
+
+            let (ch, width) = utf8::decode_char_at(bytes, byte_pos);
+            processed_up_to = byte_pos + width;
+
+            let cp = ch as u32;
+            if cp < safe_below
+                || is_cjk_unified(cp)
+                || (hangul_safe && (0xAC00..=0xD7A3).contains(&cp))
+                || (kana_safe && is_kana(cp))
+                || (cp >= 0x10000 && is_supp_safe(cp))
+            {
+                last_ccc = 0;
+                continue;
+            }
+
+            let (ccc, qc) = tables::lookup_ccc_qc(ch, qc_shift);
+            if ccc != 0 && last_ccc > ccc {
+                return IsNormalized::No;
+            }
+            match qc_value_to_result(qc) {
+                IsNormalized::No => return IsNormalized::No,
+                IsNormalized::Maybe => result = IsNormalized::Maybe,
+                IsNormalized::Yes => {},
+            }
+            last_ccc = ccc;
+        }
+
+        if processed_up_to < chunk_end {
+            last_ccc = 0;
+            processed_up_to = chunk_end;
+        }
+        pos = chunk_end;
+    }
+
+    // Scalar tail (identical to quick_check_impl; duplicated verbatim so
+    // the oracle stays a single self-contained function).
+    let tail_start = processed_up_to.max(pos);
+    if tail_start > processed_up_to {
+        last_ccc = 0;
+    }
+    let mut tail_pos = tail_start;
+    while tail_pos < len {
+        let b = bytes[tail_pos];
+        if b < 0x80 {
+            last_ccc = 0;
+            tail_pos += 1;
+            continue;
+        }
+        if utf8::is_continuation_byte(b) {
+            tail_pos += 1;
+            continue;
+        }
+        let (ch, width) = utf8::decode_char_at(bytes, tail_pos);
+        let cp = ch as u32;
+        if cp < safe_below
+            || is_cjk_unified(cp)
+            || (hangul_safe && (0xAC00..=0xD7A3).contains(&cp))
+            || (cp >= 0x10000 && is_supp_safe(cp))
+        {
+            last_ccc = 0;
+            tail_pos += width;
+            continue;
+        }
+        let (ccc, qc) = tables::lookup_ccc_qc(ch, qc_shift);
+        if ccc != 0 && last_ccc > ccc {
+            return IsNormalized::No;
+        }
+        match qc_value_to_result(qc) {
+            IsNormalized::No => return IsNormalized::No,
+            IsNormalized::Maybe => result = IsNormalized::Maybe,
+            IsNormalized::Yes => {},
+        }
+        last_ccc = ccc;
+        tail_pos += width;
+    }
+
+    result
+}
+
+/// Oracle NFC quick-check. Differential-testing only.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfc_oracle(input: &str) -> IsNormalized {
+    quick_check_impl_oracle(input, tables::CCC_QC_NFC_SHIFT, 0xCC, 0x0300, true, true)
+}
+
+/// Oracle NFD quick-check. Differential-testing only.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfd_oracle(input: &str) -> IsNormalized {
+    quick_check_impl_oracle(input, tables::CCC_QC_NFD_SHIFT, 0xC3, 0x00C0, false, false)
+}
+
+/// Oracle NFKC quick-check. Differential-testing only.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfkc_oracle(input: &str) -> IsNormalized {
+    quick_check_impl_oracle(input, tables::CCC_QC_NFKC_SHIFT, 0xC0, 0x00A0, true, true)
+}
+
+/// Oracle NFKD quick-check. Differential-testing only.
+#[cfg(feature = "quick_check_oracle")]
+pub fn quick_check_nfkd_oracle(input: &str) -> IsNormalized {
+    quick_check_impl_oracle(input, tables::CCC_QC_NFKD_SHIFT, 0xC0, 0x00A0, false, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +557,8 @@ pub(crate) fn is_normalized_nfkd(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
+    use alloc::string::String;
 
     // ---- ASCII fast path ----
 
@@ -512,5 +704,50 @@ mod tests {
     #[test]
     fn is_normalized_nfd_rejects_nfc() {
         assert!(!is_normalized_nfd("\u{00E9}"));
+    }
+
+    #[test]
+    fn safe_lead_interleaved_with_combining_marks_across_chunk() {
+        // 128 bytes spanning two SIMD chunks.
+        // Pattern: CJK ideograph (3 bytes, lead 0xE4..=0xE9, safe-lead) +
+        //          'a' (1 byte, ASCII) +
+        //          U+0591 HEBREW ACCENT ETNAHTA (CCC=220, NFC_QC=Yes, lead 0xD6 -> decode path).
+        // The U+0591 must be observed after a safe-lead reset of last_ccc so that
+        // the *next* non-zero CCC mark is accepted as non-decreasing.
+        //
+        // 16 repetitions of (CJK=3 + 'a'=1 + U+0591=2 + 'b'=1 + 'b'=1) = 16 * 8 = 128 bytes.
+        let unit = "\u{4E2D}a\u{0591}bb";
+        let s: String = unit.repeat(16);
+        assert_eq!(s.len(), 128);
+        // All code points are NFC_QC=Yes with monotonic (or zero) CCC, so NFC=Yes.
+        assert_eq!(quick_check_nfc(&s), IsNormalized::Yes);
+        // NFD: U+0591 is NFD_QC=Yes, CJK Unified is NFD_QC=Yes, ASCII is safe.
+        assert_eq!(quick_check_nfd(&s), IsNormalized::Yes);
+        assert_eq!(quick_check_nfkc(&s), IsNormalized::Yes);
+        assert_eq!(quick_check_nfkd(&s), IsNormalized::Yes);
+    }
+
+    #[test]
+    fn safe_lead_then_out_of_order_combining_is_no() {
+        // Regression: if the safe-lead short-circuit fails to set last_ccc=0,
+        // a subsequent same-position CCC check could mis-order. Build an input
+        // where CJK (CCC=0 safe-lead) is followed by a correctly-ordered
+        // combining sequence, then a mis-ordered one; expect No.
+        // U+0301 ACUTE (CCC=230), U+0327 CEDILLA (CCC=202).
+        let unit = "\u{4E2D}a\u{0301}\u{0327}"; // bad order after safe-lead + ASCII
+        let padding = "x".repeat(64); // force >= 64-byte path
+        let s = format!("{}{}", padding, unit);
+        assert!(s.len() >= 64);
+        assert_eq!(quick_check_nfc(&s), IsNormalized::No);
+    }
+
+    #[cfg(feature = "quick_check_oracle")]
+    #[test]
+    fn oracle_matches_fastpath_on_fixed_input() {
+        let s = "\u{4E2D}a\u{0591}bb".repeat(16);
+        assert_eq!(quick_check_nfc(&s), super::quick_check_nfc_oracle(&s));
+        assert_eq!(quick_check_nfd(&s), super::quick_check_nfd_oracle(&s));
+        assert_eq!(quick_check_nfkc(&s), super::quick_check_nfkc_oracle(&s));
+        assert_eq!(quick_check_nfkd(&s), super::quick_check_nfkd_oracle(&s));
     }
 }

@@ -95,6 +95,7 @@ assert!(matches_normalized("\u{FF21}", "a", &opts));    // Fullwidth A vs a
 |---------|---------|-------------|
 | `std`   | yes     | Enables runtime CPUID dispatch on x86_64 |
 | `alloc` | yes     | Required for `String`/`Cow` return types |
+| `quick_check_oracle` | no | Exposes a pre-classifier oracle slow path for differential testing. Internal only; semver-exempt. |
 
 To use in `no_std`:
 
@@ -123,6 +124,7 @@ The test suite includes 650+ tests across multiple categories:
 
 - **UAX #15 conformance** -- full NormalizationTest.txt with all 20 invariants
 - **Differential fuzzing** -- proptest against `unicode-normalization` and `icu_normalizer` (ICU4X) with thousands of generated inputs per form
+- **Quick-check fast path vs oracle** -- 32K proptest cases per form compare the production quick-check against an in-tree slow-path oracle (enable `--features quick_check_oracle`)
 - **Exhaustive codepoint validation** -- every Unicode scalar value tested for normalization invariants and differential correctness against ICU4X
 - **Multilingual corpus** -- normalization verified on real-world text in 25+ languages (Arabic, Chinese, German, Greek, Hebrew, Hindi, Japanese, Korean, Russian, Thai, Turkish, and more)
 - **SIMD boundary stress** -- multi-byte sequences straddling 64-byte chunk boundaries

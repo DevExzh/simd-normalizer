@@ -5,18 +5,65 @@
 //! returns `(0, 0)` under every form-shift that claims the byte.
 
 use simd_normalizer::tables_ext::{
-    lookup_ccc_qc,
-    CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT,
+    CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT, lookup_ccc_qc,
 };
 
 // (lead_byte, [shifts that claim it])
 const SAFE: &[(u8, &[u32])] = &[
-    (0xE4, &[CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT]),
-    (0xE5, &[CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT]),
-    (0xE6, &[CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT]),
-    (0xE7, &[CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT]),
-    (0xE8, &[CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT]),
-    (0xE9, &[CCC_QC_NFC_SHIFT, CCC_QC_NFD_SHIFT, CCC_QC_NFKC_SHIFT, CCC_QC_NFKD_SHIFT]),
+    (
+        0xE4,
+        &[
+            CCC_QC_NFC_SHIFT,
+            CCC_QC_NFD_SHIFT,
+            CCC_QC_NFKC_SHIFT,
+            CCC_QC_NFKD_SHIFT,
+        ],
+    ),
+    (
+        0xE5,
+        &[
+            CCC_QC_NFC_SHIFT,
+            CCC_QC_NFD_SHIFT,
+            CCC_QC_NFKC_SHIFT,
+            CCC_QC_NFKD_SHIFT,
+        ],
+    ),
+    (
+        0xE6,
+        &[
+            CCC_QC_NFC_SHIFT,
+            CCC_QC_NFD_SHIFT,
+            CCC_QC_NFKC_SHIFT,
+            CCC_QC_NFKD_SHIFT,
+        ],
+    ),
+    (
+        0xE7,
+        &[
+            CCC_QC_NFC_SHIFT,
+            CCC_QC_NFD_SHIFT,
+            CCC_QC_NFKC_SHIFT,
+            CCC_QC_NFKD_SHIFT,
+        ],
+    ),
+    (
+        0xE8,
+        &[
+            CCC_QC_NFC_SHIFT,
+            CCC_QC_NFD_SHIFT,
+            CCC_QC_NFKC_SHIFT,
+            CCC_QC_NFKD_SHIFT,
+        ],
+    ),
+    (
+        0xE9,
+        &[
+            CCC_QC_NFC_SHIFT,
+            CCC_QC_NFD_SHIFT,
+            CCC_QC_NFKC_SHIFT,
+            CCC_QC_NFKD_SHIFT,
+        ],
+    ),
     (0xEB, &[CCC_QC_NFC_SHIFT, CCC_QC_NFKC_SHIFT]),
     (0xEC, &[CCC_QC_NFC_SHIFT, CCC_QC_NFKC_SHIFT]),
 ];
@@ -28,13 +75,17 @@ fn safe_bytes_are_truly_safe() {
         let base = ((lead & 0x0F) as u32) << 12;
         for low12 in 0u32..4096 {
             let cp = base | low12;
-            let Some(c) = char::from_u32(cp) else { continue };
+            let Some(c) = char::from_u32(cp) else {
+                continue;
+            };
             for &shift in shifts {
                 assert_eq!(
                     lookup_ccc_qc(c, shift),
                     (0, 0),
                     "lead=0x{:02X} cp=U+{:04X} shift={} not safe",
-                    lead, cp, shift
+                    lead,
+                    cp,
+                    shift
                 );
             }
         }

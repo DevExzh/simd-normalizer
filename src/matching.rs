@@ -77,15 +77,14 @@ pub fn normalize_for_matching(input: &str, opts: &MatchingOptions) -> String {
 
 /// Single pass of the matching pipeline: NFKC → casefold → skeleton → casefold.
 ///
-/// Retained as the pre-Task-4 chain after the per-codepoint fusion was
-/// abandoned. The fused pipeline (Step 4.5 of the 2026-04-19 perf plan)
-/// violated parity because legacy's `NFKC` canonically composes before
-/// casefold, hiding code points like U+0345 (COMBINING GREEK YPOGEGRAMMENI)
-/// inside precomposed starters (e.g. U+1F80 `ᾀ`). A per-char fused pipeline
-/// decomposes first and casefolds the exposed combining mark (→ U+03B9),
-/// producing a different skeleton. Restoring the legacy ordering keeps
-/// parity; `normalize_for_matching_legacy` and `tests/perf_regression.rs`
-/// remain as regression infrastructure for any future fusion attempt.
+/// The NFKC-first ordering is parity-critical. NFKC canonically composes
+/// before casefold, hiding code points like U+0345 (COMBINING GREEK
+/// YPOGEGRAMMENI) inside precomposed starters (e.g. U+1F80 `ᾀ`). A per-char
+/// pipeline that decomposed first and casefolded the exposed combining mark
+/// (→ U+03B9) would produce a different skeleton. The
+/// `normalize_for_matching_legacy` reference function and
+/// `tests/perf_regression.rs` are kept as regression infrastructure for any
+/// future change to this ordering.
 fn one_pass(input: &str, opts: &MatchingOptions) -> String {
     let nfkc = crate::nfkc().normalize(input);
     let folded = casefold::casefold(&nfkc, opts.case_fold);
@@ -94,9 +93,8 @@ fn one_pass(input: &str, opts: &MatchingOptions) -> String {
     final_folded.into_owned()
 }
 
-/// Legacy pre-fusion implementation, preserved for parity testing against the
-/// fused pipeline. Identical in behavior to the `normalize_for_matching`
-/// implementation that existed prior to Task 4 of the 2026-04-19 perf plan.
+/// Reference implementation of the matching pipeline, preserved for parity
+/// testing against any alternative composition order.
 #[cfg(any(test, feature = "internal-test-api"))]
 pub fn normalize_for_matching_legacy(input: &str, opts: &MatchingOptions) -> String {
     if input.is_empty() {

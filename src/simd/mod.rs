@@ -27,30 +27,21 @@ pub(crate) mod scalar;
 #[doc(hidden)]
 pub mod scalar;
 
-#[cfg(all(
-    target_arch = "x86_64",
-    not(any(test, feature = "internal-test-api"))
-))]
+#[cfg(all(target_arch = "x86_64", not(any(test, feature = "internal-test-api"))))]
 pub(crate) mod x86_64;
 
 #[cfg(all(target_arch = "x86_64", any(test, feature = "internal-test-api")))]
 #[doc(hidden)]
 pub mod x86_64;
 
-#[cfg(all(
-    target_arch = "aarch64",
-    not(any(test, feature = "internal-test-api"))
-))]
+#[cfg(all(target_arch = "aarch64", not(any(test, feature = "internal-test-api"))))]
 pub(crate) mod aarch64;
 
 #[cfg(all(target_arch = "aarch64", any(test, feature = "internal-test-api")))]
 #[doc(hidden)]
 pub mod aarch64;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    not(any(test, feature = "internal-test-api"))
-))]
+#[cfg(all(target_arch = "wasm32", not(any(test, feature = "internal-test-api"))))]
 pub(crate) mod wasm32;
 
 #[cfg(all(target_arch = "wasm32", any(test, feature = "internal-test-api")))]

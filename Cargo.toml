@@ -2,9 +2,12 @@
 name = "simd-normalizer"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.91"
 description = "SIMD-accelerated Unicode normalization (NFC, NFD, NFKC, NFKD)"
 license = "Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/DevExzh/simd-normalizer"
+documentation = "https://docs.rs/simd-normalizer"
 keywords = ["unicode", "normalization", "simd", "nfc", "nfd"]
 categories = ["text-processing", "no-std"]
 # `benches/perf_driver.rs` is a [[bin]] (perf-counter driver), not a bench.

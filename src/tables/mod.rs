@@ -235,7 +235,7 @@ pub(crate) unsafe fn raw_decomp_trie_value_supplementary(
 /// is bit-identical to two serial `raw_decomp_trie_value` calls, but the two
 /// dependent loads overlap so the out-of-order engine can hide an L2 miss.
 #[allow(dead_code)]
-// retained as primitive for future pipelining work; see plans/2026-04-19-perf-optimization-plan.md step 3b.10
+// retained as a primitive for future pipelining work
 #[inline(always)]
 pub(crate) fn raw_decomp_trie_values_pipelined<const N: usize>(
     cps: &[u32; N],

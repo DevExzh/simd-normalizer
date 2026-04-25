@@ -39,6 +39,7 @@ pub mod tables_ext;
 /// Not for downstream use; semver-exempt; tracks `simd::scan_chunk*`
 /// signatures exactly.
 #[cfg(any(test, feature = "internal-test-api"))]
+#[allow(rustdoc::private_intra_doc_links)]
 pub mod simd_test_api {
     /// See [`crate::simd::scan_chunk`].
     /// # Safety

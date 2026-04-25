@@ -1,0 +1,64 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags: ['v*']  # Triggers when pushing tags starting with 'v'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  NODE_OPTIONS: --no-deprecation
+
+jobs:
+  verify:
+    name: Pre-publish verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          cargo_version=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "Tag v$tag does not match Cargo.toml version $cargo_version" >&2
+            exit 1
+          fi
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Clippy (no_std + alloc)
+        run: cargo clippy --no-default-features --features alloc --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build docs
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --all-features --locked
+
+      - name: Package (dry-run)
+        run: cargo publish --dry-run --locked
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish -p simd-normalizer
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

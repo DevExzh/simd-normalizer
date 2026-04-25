@@ -2,7 +2,7 @@
 //!
 //! Usage: `target/release/perf_driver <workload>` — loops normalization for
 //! ~2 s wall-clock, prints MB/s to stderr, and exits 0. Intended to be
-//! wrapped with `perf stat`. See docs/superpowers/specs/2026-04-21-diag-perf-counters-design.md.
+//! wrapped with `perf stat`.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};

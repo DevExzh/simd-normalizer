@@ -1,9 +1,7 @@
 //! Consolidated empty-input contract tests.
 //!
-//! Closes the gap identified in
-//! `docs/superpowers/specs/2026-04-17-full-edge-case-coverage-design.md`
-//! section 4: every public entry point is called on `""` and must return
-//! the expected empty-equivalent value.
+//! Every public entry point is called on `""` and must return the
+//! expected empty-equivalent value.
 
 use simd_normalizer::matching::{
     MatchingOptions, matches_normalized, normalize_for_matching, normalize_for_matching_utf16,

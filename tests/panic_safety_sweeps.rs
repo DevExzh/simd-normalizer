@@ -1,9 +1,7 @@
 //! Panic-safety sweeps for every public `&str`-taking entry point.
 //!
-//! Closes the gap identified in
-//! `docs/superpowers/specs/2026-04-17-full-edge-case-coverage-design.md`
-//! section 3: for every Unicode scalar, each public entry point must
-//! return without panic and (where applicable) produce well-formed output.
+//! For every Unicode scalar, each public entry point must return without
+//! panic and (where applicable) produce well-formed output.
 //!
 //! The default fast tests use a stride of 0x100 (~4,400 scalars). The
 //! full-sweep tests iterate every valid scalar and are marked `#[ignore]`,

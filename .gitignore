@@ -5,4 +5,5 @@
 /fuzz/corpus
 /fuzz/artifacts
 /.worktrees/
+.claude/
 __pycache__

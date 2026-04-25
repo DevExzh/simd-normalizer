@@ -1,8 +1,6 @@
 //! Contract tests for `NfxNormalizer::normalize_to`.
 //!
-//! Closes the gap identified in
-//! `docs/superpowers/specs/2026-04-17-full-edge-case-coverage-design.md`
-//! section 1: append-into-empty / non-empty buffer, return-value semantics,
+//! Covers append-into-empty / non-empty buffer, return-value semantics,
 //! repeated-call concatenation, already-normalized vs needs-normalization,
 //! empty input, and larger-input growth.
 

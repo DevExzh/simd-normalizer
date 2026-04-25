@@ -1,8 +1,6 @@
 //! Value-assertion edge-case tests for `normalize_for_matching_utf16`.
 //!
-//! Closes the gap identified in
-//! `docs/superpowers/specs/2026-04-17-full-edge-case-coverage-design.md`
-//! section 2. The existing `tests/matching_edge_cases.rs` covers empty,
+//! The existing `tests/matching_edge_cases.rs` covers empty,
 //! BMP-only, round-trip, and mixed cases via shape assertions; this file
 //! adds (a) exact-value assertions for NFKC-expanding inputs and
 //! combining-mark composition, and (b) a 500-case property equating

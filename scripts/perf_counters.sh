@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Perf-counter diagnosis wrapper. See:
-#   docs/superpowers/specs/2026-04-21-diag-perf-counters-design.md
+# Perf-counter diagnosis wrapper.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

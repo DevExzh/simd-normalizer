@@ -1,10 +1,6 @@
 //! Equivalence tests: `UnicodeNormalization` trait methods on `&str`
 //! produce identical output to the corresponding free functions and
 //! normalizer methods.
-//!
-//! Closes the gap identified in
-//! `docs/superpowers/specs/2026-04-17-full-edge-case-coverage-design.md`
-//! section 5.
 
 use proptest::prelude::*;
 use simd_normalizer::{

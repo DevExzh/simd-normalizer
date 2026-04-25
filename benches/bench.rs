@@ -3,7 +3,7 @@
 //! Covers NFC, NFD, NFKC, NFKD normalization and is_normalized checks across
 //! diverse Unicode input categories (~10 KB each).
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 
 // ---------------------------------------------------------------------------
@@ -248,7 +248,9 @@ fn bench_nfc(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfc().normalize(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfc().normalize(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -258,7 +260,7 @@ fn bench_nfc(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(ref_nfc(black_box(data)));
+                    std::hint::black_box(ref_nfc(std::hint::black_box(data)));
                 });
             },
         );
@@ -269,7 +271,7 @@ fn bench_nfc(c: &mut Criterion) {
             |b, data| {
                 let nfc = ComposingNormalizerBorrowed::new_nfc();
                 b.iter(|| {
-                    black_box(nfc.normalize(black_box(data)));
+                    std::hint::black_box(nfc.normalize(std::hint::black_box(data)));
                 });
             },
         );
@@ -294,7 +296,9 @@ fn bench_nfd(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfd().normalize(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfd().normalize(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -304,7 +308,7 @@ fn bench_nfd(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(ref_nfd(black_box(data)));
+                    std::hint::black_box(ref_nfd(std::hint::black_box(data)));
                 });
             },
         );
@@ -315,7 +319,7 @@ fn bench_nfd(c: &mut Criterion) {
             |b, data| {
                 let nfd = DecomposingNormalizerBorrowed::new_nfd();
                 b.iter(|| {
-                    black_box(nfd.normalize(black_box(data)));
+                    std::hint::black_box(nfd.normalize(std::hint::black_box(data)));
                 });
             },
         );
@@ -340,7 +344,9 @@ fn bench_nfkc(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfkc().normalize(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfkc().normalize(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -350,7 +356,7 @@ fn bench_nfkc(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(ref_nfkc(black_box(data)));
+                    std::hint::black_box(ref_nfkc(std::hint::black_box(data)));
                 });
             },
         );
@@ -361,7 +367,7 @@ fn bench_nfkc(c: &mut Criterion) {
             |b, data| {
                 let nfkc = ComposingNormalizerBorrowed::new_nfkc();
                 b.iter(|| {
-                    black_box(nfkc.normalize(black_box(data)));
+                    std::hint::black_box(nfkc.normalize(std::hint::black_box(data)));
                 });
             },
         );
@@ -386,7 +392,9 @@ fn bench_nfkd(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfkd().normalize(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfkd().normalize(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -396,7 +404,7 @@ fn bench_nfkd(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(ref_nfkd(black_box(data)));
+                    std::hint::black_box(ref_nfkd(std::hint::black_box(data)));
                 });
             },
         );
@@ -407,7 +415,7 @@ fn bench_nfkd(c: &mut Criterion) {
             |b, data| {
                 let nfkd = DecomposingNormalizerBorrowed::new_nfkd();
                 b.iter(|| {
-                    black_box(nfkd.normalize(black_box(data)));
+                    std::hint::black_box(nfkd.normalize(std::hint::black_box(data)));
                 });
             },
         );
@@ -433,7 +441,9 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfc().is_normalized(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfc().is_normalized(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -443,7 +453,7 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(unicode_normalization::is_nfc(black_box(data)));
+                    std::hint::black_box(unicode_normalization::is_nfc(std::hint::black_box(data)));
                 });
             },
         );
@@ -454,7 +464,7 @@ fn bench_is_normalized(c: &mut Criterion) {
             |b, data| {
                 let nfc = ComposingNormalizerBorrowed::new_nfc();
                 b.iter(|| {
-                    black_box(nfc.is_normalized(black_box(data)));
+                    std::hint::black_box(nfc.is_normalized(std::hint::black_box(data)));
                 });
             },
         );
@@ -465,7 +475,9 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfd().is_normalized(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfd().is_normalized(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -475,7 +487,7 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(unicode_normalization::is_nfd(black_box(data)));
+                    std::hint::black_box(unicode_normalization::is_nfd(std::hint::black_box(data)));
                 });
             },
         );
@@ -486,7 +498,7 @@ fn bench_is_normalized(c: &mut Criterion) {
             |b, data| {
                 let nfd = DecomposingNormalizerBorrowed::new_nfd();
                 b.iter(|| {
-                    black_box(nfd.is_normalized(black_box(data)));
+                    std::hint::black_box(nfd.is_normalized(std::hint::black_box(data)));
                 });
             },
         );
@@ -497,7 +509,9 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfkc().is_normalized(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfkc().is_normalized(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -507,7 +521,9 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(unicode_normalization::is_nfkc(black_box(data)));
+                    std::hint::black_box(unicode_normalization::is_nfkc(std::hint::black_box(
+                        data,
+                    )));
                 });
             },
         );
@@ -518,7 +534,7 @@ fn bench_is_normalized(c: &mut Criterion) {
             |b, data| {
                 let nfkc = ComposingNormalizerBorrowed::new_nfkc();
                 b.iter(|| {
-                    black_box(nfkc.is_normalized(black_box(data)));
+                    std::hint::black_box(nfkc.is_normalized(std::hint::black_box(data)));
                 });
             },
         );
@@ -529,7 +545,9 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfkd().is_normalized(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfkd().is_normalized(std::hint::black_box(data)),
+                    );
                 });
             },
         );
@@ -539,7 +557,9 @@ fn bench_is_normalized(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(unicode_normalization::is_nfkd(black_box(data)));
+                    std::hint::black_box(unicode_normalization::is_nfkd(std::hint::black_box(
+                        data,
+                    )));
                 });
             },
         );
@@ -550,7 +570,7 @@ fn bench_is_normalized(c: &mut Criterion) {
             |b, data| {
                 let nfkd = DecomposingNormalizerBorrowed::new_nfkd();
                 b.iter(|| {
-                    black_box(nfkd.is_normalized(black_box(data)));
+                    std::hint::black_box(nfkd.is_normalized(std::hint::black_box(data)));
                 });
             },
         );
@@ -578,7 +598,9 @@ fn bench_normalize_to(c: &mut Criterion) {
                 let mut buf = String::with_capacity(data.len() * 2);
                 b.iter(|| {
                     buf.clear();
-                    black_box(simd_normalizer::nfc().normalize_to(black_box(data), &mut buf));
+                    std::hint::black_box(
+                        simd_normalizer::nfc().normalize_to(std::hint::black_box(data), &mut buf),
+                    );
                 });
             },
         );
@@ -591,7 +613,9 @@ fn bench_normalize_to(c: &mut Criterion) {
                 let mut buf = String::with_capacity(data.len() * 2);
                 b.iter(|| {
                     buf.clear();
-                    black_box(simd_normalizer::nfd().normalize_to(black_box(data), &mut buf));
+                    std::hint::black_box(
+                        simd_normalizer::nfd().normalize_to(std::hint::black_box(data), &mut buf),
+                    );
                 });
             },
         );
@@ -604,7 +628,9 @@ fn bench_normalize_to(c: &mut Criterion) {
                 let mut buf = String::with_capacity(data.len() * 2);
                 b.iter(|| {
                     buf.clear();
-                    black_box(simd_normalizer::nfkc().normalize_to(black_box(data), &mut buf));
+                    std::hint::black_box(
+                        simd_normalizer::nfkc().normalize_to(std::hint::black_box(data), &mut buf),
+                    );
                 });
             },
         );
@@ -617,7 +643,9 @@ fn bench_normalize_to(c: &mut Criterion) {
                 let mut buf = String::with_capacity(data.len() * 2);
                 b.iter(|| {
                     buf.clear();
-                    black_box(simd_normalizer::nfkd().normalize_to(black_box(data), &mut buf));
+                    std::hint::black_box(
+                        simd_normalizer::nfkd().normalize_to(std::hint::black_box(data), &mut buf),
+                    );
                 });
             },
         );
@@ -642,8 +670,8 @@ fn bench_casefold(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::casefold(
-                        black_box(data),
+                    std::hint::black_box(simd_normalizer::casefold(
+                        std::hint::black_box(data),
                         simd_normalizer::CaseFoldMode::Standard,
                     ));
                 });
@@ -670,7 +698,7 @@ fn bench_confusable(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::skeleton(black_box(data)));
+                    std::hint::black_box(simd_normalizer::skeleton(std::hint::black_box(data)));
                 });
             },
         );
@@ -697,8 +725,8 @@ fn bench_matching(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::matching::normalize_for_matching(
-                        black_box(data),
+                    std::hint::black_box(simd_normalizer::matching::normalize_for_matching(
+                        std::hint::black_box(data),
                         &opts,
                     ));
                 });
@@ -711,10 +739,10 @@ fn bench_matching(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    let nfkc = simd_normalizer::nfkc().normalize(black_box(data));
+                    let nfkc = simd_normalizer::nfkc().normalize(std::hint::black_box(data));
                     let folded =
                         simd_normalizer::casefold(&nfkc, simd_normalizer::CaseFoldMode::Standard);
-                    black_box(simd_normalizer::skeleton(&folded));
+                    std::hint::black_box(simd_normalizer::skeleton(&folded));
                 });
             },
         );
@@ -741,7 +769,9 @@ fn bench_utf8_validation(c: &mut Criterion) {
             |b, data| {
                 let bytes = data.as_bytes();
                 b.iter(|| {
-                    let _ = black_box(simdutf8::basic::from_utf8(black_box(bytes)));
+                    let _ = std::hint::black_box(simdutf8::basic::from_utf8(std::hint::black_box(
+                        bytes,
+                    )));
                 });
             },
         );
@@ -753,7 +783,9 @@ fn bench_utf8_validation(c: &mut Criterion) {
             |b, data| {
                 let bytes = data.as_bytes();
                 b.iter(|| {
-                    let _ = black_box(simdutf8::compat::from_utf8(black_box(bytes)));
+                    let _ = std::hint::black_box(simdutf8::compat::from_utf8(
+                        std::hint::black_box(bytes),
+                    ));
                 });
             },
         );
@@ -765,7 +797,7 @@ fn bench_utf8_validation(c: &mut Criterion) {
             |b, data| {
                 let bytes = data.as_bytes();
                 b.iter(|| {
-                    let _ = black_box(core::str::from_utf8(black_box(bytes)));
+                    let _ = std::hint::black_box(core::str::from_utf8(std::hint::black_box(bytes)));
                 });
             },
         );
@@ -776,7 +808,9 @@ fn bench_utf8_validation(c: &mut Criterion) {
             &input.data,
             |b, data| {
                 b.iter(|| {
-                    black_box(simd_normalizer::nfc().is_normalized(black_box(data)));
+                    std::hint::black_box(
+                        simd_normalizer::nfc().is_normalized(std::hint::black_box(data)),
+                    );
                 });
             },
         );

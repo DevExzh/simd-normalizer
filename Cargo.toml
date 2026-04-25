@@ -10,6 +10,18 @@ repository = "https://github.com/DevExzh/simd-normalizer"
 documentation = "https://docs.rs/simd-normalizer"
 keywords = ["unicode", "normalization", "simd", "nfc", "nfd"]
 categories = ["text-processing", "no-std"]
+exclude = [
+    "/3rdparty/",
+    "/.github/",
+    "/.worktrees/",
+    "/.claude/",
+    "/benches/",
+    "/docs/",
+    "/fuzz/",
+    "/scripts/",
+    "/test-data/",
+    "/tests/data/",
+]
 # `benches/perf_driver.rs` is a [[bin]] (perf-counter driver), not a bench.
 # Disable auto-bench discovery so Cargo doesn't double-register the file.
 autobenches = false

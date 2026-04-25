@@ -31,7 +31,7 @@ proptest = "1"
 unicode-normalization = "0.1"
 icu_normalizer = "2.2"
 simdutf8 = "0.1"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 simd-normalizer = { path = ".", features = ["internal-test-api"] }
 
 [[bench]]

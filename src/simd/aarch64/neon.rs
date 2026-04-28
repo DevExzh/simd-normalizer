@@ -149,8 +149,8 @@ mod tests {
     #[test]
     fn neon_matches_scalar() {
         let mut chunk = [0u8; 64];
-        for i in 0..64 {
-            chunk[i] = (i as u8).wrapping_mul(7);
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte = (i as u8).wrapping_mul(7);
         }
         let neon_mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
         let scalar_mask = unsafe { crate::simd::scalar::scan_chunk(chunk.as_ptr(), 0xC0) };

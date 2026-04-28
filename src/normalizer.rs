@@ -240,6 +240,11 @@ fn is_cjk_unified(cp: u32) -> bool {
 /// Check if a supplementary code point (cp >= 0x10000) is safe (CCC=0, no
 /// decomposition in any normalization form). Covers the vast majority of
 /// supplementary characters; only narrow exception ranges need trie lookups.
+///
+/// Retained as a documented invariant of the supplementary safe range; the
+/// unified `decode_at` pipeline now derives the same property from a single
+/// trie lookup, so this helper is consulted only by its own tests.
+#[allow(dead_code)]
 #[inline(always)]
 fn is_supp_safe(cp: u32) -> bool {
     if cp >= 0x20000 {
@@ -334,6 +339,7 @@ fn process_from_trie(
 /// Process a non-CJK, non-Hangul character for NFD/NFKD using a pre-computed
 /// trie value. Avoids `DecompResult` enum construction by inlining the expansion
 /// path and specializing the common 2-entry case (starter + single combining mark).
+#[allow(dead_code)]
 #[inline(always)]
 fn process_from_trie_nfd(
     ch: char,
@@ -399,6 +405,261 @@ fn process_from_trie_nfd(
         tables::lookup_ccc(decomposed)
     };
     state.feed_entry_nfd(decomposed, ccc, out);
+}
+
+// ---------------------------------------------------------------------------
+// Unified per-codepoint decode pipeline (Component D)
+// ---------------------------------------------------------------------------
+//
+// On dense scripts (CJK, Hangul, emoji, Arabic) every byte in a 64-byte SIMD
+// chunk is a "hit", and the per-codepoint decode/CCC/decompose calls dominate
+// runtime. The unified `decode_at` performs UTF-8 decode, CCC extraction, and
+// decomposition lookup in one pass, sharing the bounds check and table-pointer
+// derivation. `process_codepoint` then dispatches form-specifically on the
+// resulting `DecodedCodepoint` without re-doing any of that work.
+
+/// Discriminator describing what kind of decomposition (if any) was looked up
+/// for a codepoint. The variant determines which decomposition table the
+/// `decomp` slice came from (or whether it is empty / singleton-encoded).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DecompKind {
+    /// Codepoint has no decomposition mapping in the relevant form. The
+    /// codepoint passes through with its own CCC.
+    None,
+    /// Decomposition was looked up via the canonical (NFC/NFD) trie.
+    Canonical,
+    /// Decomposition was looked up via the compatibility (NFKC/NFKD) trie.
+    Compat,
+}
+
+/// Result of a unified UTF-8 + CCC + decomposition lookup at a byte position.
+///
+/// `decomp` is the expansion slice from the canonical/compat table when the
+/// codepoint has an expansion-form decomposition; for singleton decompositions
+/// (which target a single BMP codepoint encoded inside the trie value), the
+/// slice is empty and `tv` carries the trie value so the singleton can be
+/// resolved without a second lookup.
+struct DecodedCodepoint {
+    /// The decoded codepoint.
+    cp: u32,
+    /// UTF-8 byte length, in `1..=4`.
+    cp_len: u8,
+    /// Canonical Combining Class for this codepoint (0 for starters).
+    ccc: u8,
+    /// Discriminator for the `decomp` field interpretation.
+    decomp_kind: DecompKind,
+    /// Expansion data slice (empty if `decomp_kind == None` or if the
+    /// decomposition is a singleton — see `tv` for the singleton case).
+    decomp: &'static [u32],
+    /// Raw trie value from the relevant decomposition trie. Used to fall back
+    /// to the existing singleton path without a second lookup.
+    tv: u32,
+}
+
+/// Single-pass UTF-8 decode + CCC + decomposition lookup at byte index `idx`.
+///
+/// Performs the bounds check and table-pointer derivation once for all four
+/// pieces of information, replacing four separate sub-calls each with their
+/// own checks.
+///
+/// # Safety
+///
+/// - `bytes` must point to at least `len` valid bytes.
+/// - `idx` must be a valid index `< len` and must point to a UTF-8 leading
+///   byte (not a continuation byte). Both invariants are guaranteed by the
+///   SIMD scanner contract on the bit-walk: bits in the chunk mask only
+///   correspond to bytes `>= bound`, and our bound rules out the
+///   `0x80..=0xBF` range from being a leading byte.
+/// - The bytes at `idx..idx + cp_len` must form a valid UTF-8 sequence (true
+///   because `bytes` originates from a valid `&str`).
+#[inline(always)]
+unsafe fn decode_at(bytes: *const u8, idx: usize, len: usize, form: Form) -> DecodedCodepoint {
+    debug_assert!(idx < len);
+    // SAFETY: `idx < len` and `bytes` is valid for `len` bytes.
+    let b0 = unsafe { *bytes.add(idx) };
+    let cp_len = utf8::utf8_char_width(b0);
+    debug_assert!(cp_len > 0, "decode_at called on continuation/invalid byte");
+    debug_assert!(idx + cp_len <= len, "UTF-8 sequence runs past end of input");
+
+    // Decode the codepoint. The branch arms correspond to the four possible
+    // UTF-8 widths; `cp_len == 0` is impossible because the SIMD scanner only
+    // surfaces leading bytes (any continuation byte is filtered out by the
+    // caller before invoking `decode_at`).
+    let cp = match cp_len {
+        1 => b0 as u32,
+        2 => {
+            // SAFETY: `idx + 1 < len` because `cp_len == 2` and the input is
+            // valid UTF-8 with at least `cp_len` bytes available.
+            let b1 = unsafe { *bytes.add(idx + 1) } as u32;
+            ((b0 as u32 & 0x1F) << 6) | (b1 & 0x3F)
+        },
+        3 => {
+            // SAFETY: as above with `cp_len == 3`.
+            let b1 = unsafe { *bytes.add(idx + 1) } as u32;
+            let b2 = unsafe { *bytes.add(idx + 2) } as u32;
+            ((b0 as u32 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)
+        },
+        4 => {
+            // SAFETY: as above with `cp_len == 4`.
+            let b1 = unsafe { *bytes.add(idx + 1) } as u32;
+            let b2 = unsafe { *bytes.add(idx + 2) } as u32;
+            let b3 = unsafe { *bytes.add(idx + 3) } as u32;
+            ((b0 as u32 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+        },
+        // SAFETY: `cp_len` is one of {1,2,3,4} for a valid UTF-8 leading byte;
+        // the SIMD bit-walk only surfaces leading bytes by contract.
+        _ => unsafe { core::hint::unreachable_unchecked() },
+    };
+
+    // Single trie lookup for both CCC and decomposition. Use the unchecked
+    // supplementary path for cp >= 0x10000 (emoji etc.) to skip the BMP
+    // branch in `CodePointTrie::get`.
+    let decomp_form = form.decomp_form();
+    let tv = if cp >= 0x10000 {
+        // SAFETY: `cp` is a valid supplementary code point from a valid char.
+        unsafe { tables::raw_decomp_trie_value_supplementary(cp, decomp_form) }
+    } else {
+        // SAFETY: BMP path — `cp` is a valid Unicode scalar value.
+        let ch = unsafe { char::from_u32_unchecked(cp) };
+        tables::raw_decomp_trie_value(ch, decomp_form)
+    };
+    let ccc = tables::ccc_from_trie_value(tv);
+
+    let (decomp_kind, decomp) = if !tables::has_decomposition(tv) {
+        (DecompKind::None, &[][..])
+    } else {
+        let kind = match decomp_form {
+            DecompForm::Canonical => DecompKind::Canonical,
+            DecompForm::Compatible => DecompKind::Compat,
+        };
+        // Expansion if present; empty slice marks a singleton (handled via tv).
+        let slice = tables::expansion_data_from_trie_value(tv, decomp_form).unwrap_or(&[]);
+        (kind, slice)
+    };
+
+    DecodedCodepoint {
+        cp,
+        cp_len: cp_len as u8,
+        ccc,
+        decomp_kind,
+        decomp,
+        tv,
+    }
+}
+
+/// Feed the entries of an expansion-form decomposition into `state`. Each
+/// entry packs `(ccc, codepoint)` per `EXPANSION_CCC_SHIFT` / `EXPANSION_CP_MASK`.
+///
+/// In NFD/NFKD mode (`!composes`), specializes the 2-entry "starter +
+/// combining mark" expansion (the common precomposed-Latin / Greek / Cyrillic
+/// case) to bypass per-entry `feed_entry_nfd` overhead.
+#[inline(always)]
+fn feed_expansion(decomp: &'static [u32], state: &mut NormState, out: &mut String, composes: bool) {
+    if !composes && decomp.len() == 2 {
+        let e0 = decomp[0];
+        let ccc0 = (e0 >> tables::EXPANSION_CCC_SHIFT) as u8;
+        if ccc0 == 0 {
+            // Starter + (any second entry). Hot path on precomposed Latin.
+            state.flush_nfd(out);
+            let cp0 = e0 & tables::EXPANSION_CP_MASK;
+            debug_assert!(cp0 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp0));
+            // SAFETY: expansion data targets are valid Unicode scalar values.
+            state.current_starter = Some(unsafe { char::from_u32_unchecked(cp0) });
+            let e1 = decomp[1];
+            let cp1 = e1 & tables::EXPANSION_CP_MASK;
+            let ccc1 = (e1 >> tables::EXPANSION_CCC_SHIFT) as u8;
+            debug_assert!(cp1 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp1));
+            // SAFETY: expansion data targets are valid Unicode scalar values.
+            let ch1 = unsafe { char::from_u32_unchecked(cp1) };
+            if ccc1 != 0 {
+                state.ccc_buf.push(ch1, ccc1);
+            } else {
+                state.feed_entry_nfd(ch1, 0, out);
+            }
+            return;
+        }
+    }
+    for &entry in decomp {
+        let cp = entry & tables::EXPANSION_CP_MASK;
+        let ccc = (entry >> tables::EXPANSION_CCC_SHIFT) as u8;
+        debug_assert!(cp <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp));
+        // SAFETY: expansion data is generated from valid Unicode scalar values.
+        let exp_ch = unsafe { char::from_u32_unchecked(cp) };
+        if composes {
+            state.feed_entry(exp_ch, ccc, out, true);
+        } else {
+            state.feed_entry_nfd(exp_ch, ccc, out);
+        }
+    }
+}
+
+/// Cold path: feed a singleton decomposition (one BMP codepoint embedded in
+/// the trie value) into `state`. Singletons are rare on dense scripts where
+/// the SIMD-hit branch dominates, so we mark this branch `#[cold]` to keep
+/// the hot path (passthrough + expansion) tighter.
+#[cold]
+#[inline(never)]
+fn feed_singleton(tv: u32, state: &mut NormState, out: &mut String, composes: bool) {
+    let info = tv & 0xFFFF;
+    debug_assert!(info <= 0xD7FF || (0xE000..=0xFFFF).contains(&info));
+    // SAFETY: singleton target is a valid BMP codepoint by table construction.
+    let decomposed = unsafe { char::from_u32_unchecked(info) };
+    let ccc = if info <= 0x7F {
+        0
+    } else {
+        tables::lookup_ccc(decomposed)
+    };
+    if composes {
+        state.feed_entry(decomposed, ccc, out, true);
+    } else {
+        state.feed_entry_nfd(decomposed, ccc, out);
+    }
+}
+
+/// Cold helper: feed a combining mark (CCC > 0) into `state`. Combining marks
+/// drive the CCC reorder chain inside `NormState`, which is rare on the dense
+/// scripts (CJK / Hangul / emoji) where the SIMD-hit branch dominates.
+/// Splitting it out lets the hot starter path stay branch-light.
+#[cold]
+#[inline(never)]
+fn feed_combining_mark(ch: char, ccc: u8, state: &mut NormState, out: &mut String, composes: bool) {
+    if composes {
+        state.feed_entry(ch, ccc, out, true);
+    } else {
+        state.feed_entry_nfd(ch, ccc, out);
+    }
+}
+
+/// Drive a decoded codepoint through the form-specific accumulation state.
+///
+/// Replaces the four-call sub-pipeline (decode → ccc → decompose → process)
+/// at each bit-walk position with a single dispatch on `DecodedCodepoint`.
+#[inline(always)]
+fn process_codepoint(dc: &DecodedCodepoint, state: &mut NormState, out: &mut String, form: Form) {
+    let composes = form.composes();
+    match dc.decomp_kind {
+        DecompKind::None => {
+            // No decomposition: feed the codepoint with its CCC.
+            // SAFETY: `cp` came from a valid `&str`, so it's a valid scalar.
+            let ch = unsafe { char::from_u32_unchecked(dc.cp) };
+            if dc.ccc == 0 {
+                if composes {
+                    state.feed_entry(ch, 0, out, true);
+                } else {
+                    state.feed_entry_nfd(ch, 0, out);
+                }
+            } else {
+                feed_combining_mark(ch, dc.ccc, state, out, composes);
+            }
+        },
+        DecompKind::Canonical | DecompKind::Compat => {
+            if !dc.decomp.is_empty() {
+                feed_expansion(dc.decomp, state, out, composes);
+            } else {
+                feed_singleton(dc.tv, state, out, composes);
+            }
+        },
+    }
 }
 
 /// Compose-mode passthrough flush. Called from both the chunk loop and scalar
@@ -496,7 +757,6 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     let mut out = String::with_capacity(form.estimated_capacity(len));
     let mut last_written: usize = 0;
     let mut state = NormState::new();
-    let mut decomp_buf = CccBuffer::new();
 
     let mut pos: usize = 0;
     let ptr = bytes.as_ptr();
@@ -534,7 +794,9 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             continue;
         }
 
-        // Walk set bits in the mask.
+        // Walk set bits in the mask. Each set bit marks a byte >= bound; the
+        // unified `decode_at` derives UTF-8 width, codepoint, CCC, and decomp
+        // in one pass, then `process_codepoint` dispatches form-specifically.
         let mut chunk_mask = mask;
         while chunk_mask != 0 {
             let bit_pos = chunk_mask.trailing_zeros() as usize;
@@ -553,28 +815,30 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 continue;
             }
 
-            // Decode the character at this position.
-            let (ch, width) = utf8::decode_char_at(bytes, byte_pos);
+            // SAFETY: `byte_pos < len` (bit_pos < 64, chunk_start + 64 <= len)
+            // and the byte at `byte_pos` is a UTF-8 leading byte (continuation
+            // filter above). The input came from a valid `&str`, so the full
+            // sequence of `cp_len` bytes is guaranteed to be valid UTF-8.
+            let dc = unsafe { decode_at(ptr, byte_pos, len, form) };
+            let width = dc.cp_len as usize;
 
             // Extended passthrough for decomposition-only forms (NFD/NFKD):
             // Non-decomposing starters (CCC=0) produce identical output, so
             // they can be bulk-copied with surrounding passthrough bytes,
             // avoiding per-character NormState flush + push overhead.
             if !composes {
-                let cp = ch as u32;
-                // CJK ideographs: guaranteed non-decomposing starters, no trie needed.
-                if (cp >= 0x3400 && is_cjk_unified(cp)) || (cp >= 0x10000 && is_supp_safe(cp)) {
-                    continue;
-                }
-                // Hangul syllables: algorithmic decomposition, write jamo directly
-                // to output bypassing per-entry NormState overhead.
-                if hangul::is_hangul_syllable(ch) {
+                // Hangul syllables: algorithmic decomposition (the trie reports
+                // them as no-decomp), write jamo directly to output. Must
+                // precede the no-decomp passthrough check below.
+                if (hangul::S_BASE..hangul::S_BASE + hangul::S_COUNT).contains(&dc.cp) {
                     if byte_pos > last_written {
                         state.flush_nfd(&mut out);
                         out.push_str(&input[last_written..byte_pos]);
                     }
                     last_written = byte_pos + width;
                     state.flush_nfd(&mut out);
+                    // SAFETY: dc.cp is a valid Hangul syllable codepoint.
+                    let ch = unsafe { char::from_u32_unchecked(dc.cp) };
                     let (l, v, t) = hangul::decompose_hangul(ch);
                     out.push(l);
                     out.push(v);
@@ -583,50 +847,33 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                     }
                     continue;
                 }
-                // Non-CJK, non-Hangul: single trie lookup for both the
-                // passthrough check and (if needed) decomposition processing.
-                // Use unchecked supplementary path for cp >= 0x10000 (emoji etc).
-                let tv = if cp >= 0x10000 {
-                    // SAFETY: cp is a valid supplementary code point from a valid char.
-                    unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
-                } else {
-                    tables::raw_decomp_trie_value(ch, form.decomp_form())
-                };
-                if !tables::has_decomposition(tv) && tables::ccc_from_trie_value(tv) == 0 {
-                    continue; // non-decomposing starter → passthrough
+                // Non-decomposing starter: bulk-passthrough.
+                if dc.decomp_kind == DecompKind::None && dc.ccc == 0 {
+                    continue;
                 }
-                // Needs work: copy passthrough, then process with inline NFD path.
+                // Needs work: copy passthrough, then process via unified pipeline.
                 if byte_pos > last_written {
                     state.flush_nfd(&mut out);
                     out.push_str(&input[last_written..byte_pos]);
                 }
                 last_written = byte_pos + width;
-                process_from_trie_nfd(ch, tv, &mut state, &mut out, form.decomp_form());
+                process_codepoint(&dc, &mut state, &mut out, form);
                 continue;
             }
 
-            // Copy any passthrough bytes between last_written and this position.
-            // Flush NormState first: it may hold a buffered starter that must
-            // appear *before* the passthrough run in the output.
-            //
-            // In composition mode, keep the last passthrough character as a
-            // potential starter for the following combining mark. Passthrough
-            // bytes are guaranteed to be ASCII (< 0xC0) and thus single-byte
-            // starters with CCC 0.
+            // Compose mode: copy any passthrough bytes between last_written and
+            // this position. Flush NormState first: it may hold a buffered
+            // starter that must appear *before* the passthrough run.
             if byte_pos > last_written {
                 state.flush(&mut out, composes);
                 let pass = &input[last_written..byte_pos];
-                if composes {
-                    flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
-                } else {
-                    out.push_str(pass);
-                }
+                // SAFETY: dc.cp came from a valid &str, so it's a valid scalar.
+                let ch = unsafe { char::from_u32_unchecked(dc.cp) };
+                flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
             }
 
             last_written = byte_pos + width;
-
-            // Process through decomposition + accumulation.
-            process_char(ch, &mut state, &mut out, form, &mut decomp_buf);
+            process_codepoint(&dc, &mut state, &mut out, form);
         }
 
         pos += 64;
@@ -638,7 +885,9 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         let tail_has_work = bytes[pos..].iter().any(|&b| b >= bound);
 
         if tail_has_work {
-            // Process remaining bytes character-by-character.
+            // Process remaining bytes character-by-character via the unified
+            // `decode_at` + `process_codepoint` pipeline (same shape as the
+            // SIMD bit-walk above).
             let mut tail_pos = pos;
             while tail_pos < len {
                 if tail_pos < last_written {
@@ -651,23 +900,23 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                     continue;
                 }
 
-                let (ch, width) = utf8::decode_char_at(bytes, tail_pos);
+                // SAFETY: `tail_pos < len` and the byte is a UTF-8 leading
+                // byte (continuation filter above). Input is a valid `&str`.
+                let dc = unsafe { decode_at(ptr, tail_pos, len, form) };
+                let width = dc.cp_len as usize;
 
-                // Extended passthrough (NFD/NFKD): skip non-decomposing starters.
+                // Extended passthrough (NFD/NFKD): bulk-copy non-decomposing
+                // starters; algorithmic Hangul written directly to output.
                 if !composes {
-                    let cp = ch as u32;
-                    if (cp >= 0x3400 && is_cjk_unified(cp)) || (cp >= 0x10000 && is_supp_safe(cp)) {
-                        tail_pos += width;
-                        continue;
-                    }
-                    // Hangul syllables: algorithmic decomposition, write directly.
-                    if hangul::is_hangul_syllable(ch) {
+                    if (hangul::S_BASE..hangul::S_BASE + hangul::S_COUNT).contains(&dc.cp) {
                         if tail_pos > last_written {
                             state.flush_nfd(&mut out);
                             out.push_str(&input[last_written..tail_pos]);
                         }
                         last_written = tail_pos + width;
                         state.flush_nfd(&mut out);
+                        // SAFETY: dc.cp is a valid Hangul syllable codepoint.
+                        let ch = unsafe { char::from_u32_unchecked(dc.cp) };
                         let (l, v, t) = hangul::decompose_hangul(ch);
                         out.push(l);
                         out.push(v);
@@ -677,43 +926,31 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                         tail_pos += width;
                         continue;
                     }
-                    let tv = if cp >= 0x10000 {
-                        // SAFETY: cp is a valid supplementary code point from a valid char.
-                        unsafe {
-                            tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form())
-                        }
-                    } else {
-                        tables::raw_decomp_trie_value(ch, form.decomp_form())
-                    };
-                    if !tables::has_decomposition(tv) && tables::ccc_from_trie_value(tv) == 0 {
+                    if dc.decomp_kind == DecompKind::None && dc.ccc == 0 {
                         tail_pos += width;
                         continue;
                     }
-                    // Needs work: copy passthrough, process with inline NFD path.
                     if tail_pos > last_written {
                         state.flush_nfd(&mut out);
                         out.push_str(&input[last_written..tail_pos]);
                     }
                     last_written = tail_pos + width;
-                    process_from_trie_nfd(ch, tv, &mut state, &mut out, form.decomp_form());
+                    process_codepoint(&dc, &mut state, &mut out, form);
                     tail_pos += width;
                     continue;
                 }
 
-                // Copy passthrough bytes before this char.
+                // Compose mode: copy passthrough bytes before this char.
                 if tail_pos > last_written {
                     state.flush(&mut out, composes);
                     let pass = &input[last_written..tail_pos];
-                    if composes {
-                        flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
-                    } else {
-                        out.push_str(pass);
-                    }
+                    // SAFETY: dc.cp came from a valid &str.
+                    let ch = unsafe { char::from_u32_unchecked(dc.cp) };
+                    flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
                 }
 
                 last_written = tail_pos + width;
-
-                process_char(ch, &mut state, &mut out, form, &mut decomp_buf);
+                process_codepoint(&dc, &mut state, &mut out, form);
 
                 tail_pos += width;
             }

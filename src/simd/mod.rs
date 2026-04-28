@@ -13,7 +13,9 @@
 //! The dispatch layer selects the best backend via a `SimdVTable` struct:
 //! - x86_64 + std: runtime CPUID via `OnceLock<&'static SimdVTable>`
 //! - x86_64 + no_std: compile-time via `cfg(target_feature)`
-//! - aarch64: always NEON (mandatory in AArch64 ISA)
+//! - aarch64 + std: runtime probe via `is_aarch64_feature_detected!("sve2")`
+//!   selecting `VTABLE_SVE2` when available, else `VTABLE_NEON`
+//! - aarch64 + no_std: compile-time via `cfg(target_feature = "sve2")`
 //! - wasm32: simd128 if compiled with the feature, else scalar
 //! - other: scalar fallback
 
@@ -94,9 +96,17 @@ static VTABLE_AVX512: SimdVTable = SimdVTable {
 };
 
 #[cfg(target_arch = "aarch64")]
+#[allow(dead_code)]
 static VTABLE_NEON: SimdVTable = SimdVTable {
     scan_chunk: aarch64::neon::scan_chunk,
     scan_and_prefetch: aarch64::neon::scan_and_prefetch,
+};
+
+#[cfg(target_arch = "aarch64")]
+#[allow(dead_code)]
+static VTABLE_SVE2: SimdVTable = SimdVTable {
+    scan_chunk: aarch64::sve2::scan_chunk,
+    scan_and_prefetch: aarch64::sve2::scan_and_prefetch,
 };
 
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
@@ -171,15 +181,45 @@ mod dispatch {
 }
 
 // ===========================================================================
-// aarch64: NEON is always available
+// aarch64 + std: runtime dispatch via OnceLock + is_aarch64_feature_detected
 // ===========================================================================
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(feature = "std", target_arch = "aarch64"))]
+mod dispatch {
+    use super::SimdVTable;
+    use std::sync::OnceLock;
+
+    static VTABLE: OnceLock<&'static SimdVTable> = OnceLock::new();
+
+    fn detect_best() -> &'static SimdVTable {
+        if std::arch::is_aarch64_feature_detected!("sve2") {
+            return &super::VTABLE_SVE2;
+        }
+        &super::VTABLE_NEON
+    }
+
+    #[inline]
+    pub(crate) fn get_vtable() -> &'static SimdVTable {
+        VTABLE.get_or_init(detect_best)
+    }
+}
+
+// ===========================================================================
+// aarch64 + no_std: compile-time dispatch via cfg(target_feature)
+// ===========================================================================
+#[cfg(all(not(feature = "std"), target_arch = "aarch64"))]
 mod dispatch {
     use super::SimdVTable;
 
     #[inline]
     pub(crate) fn get_vtable() -> &'static SimdVTable {
-        &super::VTABLE_NEON
+        #[cfg(target_feature = "sve2")]
+        {
+            return &super::VTABLE_SVE2;
+        }
+        #[cfg(not(target_feature = "sve2"))]
+        {
+            &super::VTABLE_NEON
+        }
     }
 }
 

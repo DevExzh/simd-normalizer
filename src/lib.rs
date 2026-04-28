@@ -48,6 +48,30 @@ pub mod simd_test_api {
     pub unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
         unsafe { crate::simd::scan_chunk(ptr, bound) }
     }
+
+    /// Direct NEON `scan_chunk` for cross-vtable consistency tests on
+    /// aarch64. Mirrors the dispatched signature.
+    /// # Safety
+    /// `ptr` must be valid for 64 bytes of read access.
+    #[cfg(target_arch = "aarch64")]
+    #[inline]
+    pub unsafe fn neon_scan_chunk(ptr: *const u8, bound: u8) -> u64 {
+        unsafe { crate::simd::aarch64::neon::scan_chunk(ptr, bound) }
+    }
+
+    /// Direct SVE2 `scan_chunk` for cross-vtable consistency tests on
+    /// aarch64. Mirrors the dispatched signature. The caller MUST verify
+    /// `is_aarch64_feature_detected!("sve2")` before invoking this on a
+    /// std target — calling it on a host without SVE2 is undefined
+    /// behaviour (SIGILL).
+    /// # Safety
+    /// `ptr` must be valid for 64 bytes of read access AND the host must
+    /// support SVE2.
+    #[cfg(target_arch = "aarch64")]
+    #[inline]
+    pub unsafe fn sve2_scan_chunk(ptr: *const u8, bound: u8) -> u64 {
+        unsafe { crate::simd::aarch64::sve2::scan_chunk(ptr, bound) }
+    }
 }
 
 pub use casefold::{CaseFoldMode, casefold, casefold_char};

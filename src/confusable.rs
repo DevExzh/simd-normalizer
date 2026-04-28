@@ -13,8 +13,22 @@ use crate::tables::{self, ConfusableResult};
 ///
 /// Pushes the mapped character(s) to `out`. If the character has no
 /// confusable mapping, it is pushed unchanged.
+///
+/// A 256-byte compile-time bloom filter (see
+/// [`tables::confusable_bloom_might_contain`]) gates the binary search into
+/// the mapping table. The bloom is built from the same `CONFUSABLE_MAPPINGS`
+/// list that `lookup_confusable` consults, so by construction every source
+/// codepoint hashes to a set bit — false negatives are impossible. A clear
+/// bit means the character is provably not in the table and we skip the
+/// search outright. The vast majority of codepoints in real-world text
+/// (ASCII, common Latin-1, CJK ideographs, etc.) are not confusable sources,
+/// so the bloom check eliminates most of the per-codepoint search cost.
 #[inline]
 fn confusable_map_char(c: char, out: &mut String) {
+    if !tables::confusable_bloom_might_contain(c as u32) {
+        out.push(c);
+        return;
+    }
     match tables::lookup_confusable(c) {
         ConfusableResult::None => out.push(c),
         ConfusableResult::Single(mapped) => out.push(mapped),

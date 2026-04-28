@@ -555,6 +555,61 @@ pub(crate) fn confusable_expansion_data(offset: usize, length: usize) -> &'stati
 }
 
 // ---------------------------------------------------------------------------
+// Confusable bloom filter (Component E)
+// ---------------------------------------------------------------------------
+//
+// 256-byte bloom filter indexed by `(cp >> 8) ^ (cp & 0xFF)`, mapping to a
+// single bit. False positives are acceptable; false negatives are not (a
+// false negative would skip a required confusable mapping). The bloom is
+// computed at compile time from the same `CONFUSABLE_MAPPINGS` list that
+// `lookup_confusable` consults, so by construction every source codepoint
+// hashes to a set bit.
+
+/// Compute the bloom hash for a codepoint: byte index in `[0, 256)` and bit
+/// position in `[0, 8)`.
+#[inline(always)]
+pub(crate) const fn confusable_bloom_hash(cp: u32) -> (usize, u8) {
+    // Index: low 8 bits of `(cp >> 8) ^ (cp & 0xFF)`. The `& 0xFF` mask
+    // keeps the index in `[0, 256)` for supplementary codepoints whose
+    // `cp >> 8` can exceed 0xFF. The full hash mixes the high nibble of cp
+    // into the bit position so distinct codepoints sharing the same byte
+    // index typically pick different bits.
+    let h = (((cp >> 8) ^ (cp & 0xFF)) & 0xFF) as usize;
+    let bit = (((cp >> 16) ^ (cp >> 4)) & 0x07) as u8;
+    (h, bit)
+}
+
+/// Build the 256-byte confusable bloom filter at compile time.
+const fn build_confusable_bloom() -> [u8; 256] {
+    let mut bloom = [0u8; 256];
+    let mappings = confusable::CONFUSABLE_MAPPINGS;
+    let mut i = 0;
+    while i < mappings.len() {
+        let cp = mappings[i].0;
+        let (idx, bit) = confusable_bloom_hash(cp);
+        bloom[idx] |= 1u8 << bit;
+        i += 1;
+    }
+    bloom
+}
+
+/// 256-byte bloom filter for the confusable mapping table.
+///
+/// Constructed at compile time from `CONFUSABLE_MAPPINGS`. A clear bit at
+/// position `confusable_bloom_hash(cp)` proves the codepoint has no
+/// confusable mapping; a set bit means the codepoint *might* have one
+/// (proceed to `lookup_confusable`).
+pub(crate) const CONFUSABLE_BLOOM: [u8; 256] = build_confusable_bloom();
+
+/// Probabilistic membership test: returns `false` only if the codepoint is
+/// provably not in the confusable mapping table.
+#[inline(always)]
+pub(crate) fn confusable_bloom_might_contain(cp: u32) -> bool {
+    let (idx, bit) = confusable_bloom_hash(cp);
+    (CONFUSABLE_BLOOM[idx] >> bit) & 1 != 0
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

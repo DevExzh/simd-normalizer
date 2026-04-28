@@ -40,11 +40,30 @@ pub fn casefold_char(c: char, mode: CaseFoldMode) -> char {
 ///
 /// Returns `Cow::Borrowed` if the string is already fully case-folded
 /// (no characters changed).
+///
+/// In `CaseFoldMode::Standard`, the implementation runs an ASCII fast path:
+/// 64-byte chunks are scanned via the dispatched SIMD scanner with bound
+/// `0x80`. Chunks with zero non-ASCII bytes get a scalar `mask | 0x20`-style
+/// lowercase pass (no per-byte trie lookup), which dominates throughput on
+/// ASCII / Latin-1 inputs. Non-ASCII chunks fall back to the per-codepoint
+/// trie-driven path. Other modes (Turkish, etc.) skip the fast path because
+/// their override rules apply within the ASCII range.
 pub fn casefold<'a>(input: &'a str, mode: CaseFoldMode) -> Cow<'a, str> {
     if input.is_empty() {
         return Cow::Borrowed(input);
     }
 
+    if mode == CaseFoldMode::Standard {
+        casefold_ascii_fastpath(input)
+    } else {
+        casefold_scalar(input, mode)
+    }
+}
+
+/// Scalar fallback used by both the non-Standard modes and the ASCII fast
+/// path's tail / non-ASCII region. Walks codepoints through the casefold
+/// trie; returns `Cow::Borrowed` if nothing changed.
+fn casefold_scalar<'a>(input: &'a str, mode: CaseFoldMode) -> Cow<'a, str> {
     // Quick scan: find first character that would change.
     let mut scan_iter = input.char_indices();
     let first_change = loop {
@@ -67,6 +86,117 @@ pub fn casefold<'a>(input: &'a str, mode: CaseFoldMode) -> Cow<'a, str> {
         out.push(casefold_char(ch, mode));
     }
 
+    Cow::Owned(out)
+}
+
+/// Standard-mode casefold with a 64-byte SIMD-driven ASCII fast path.
+///
+/// We walk the input in 64-byte chunks, scanning with `bound = 0x80` to
+/// detect any non-ASCII byte. ASCII-only chunks are lowercased via the
+/// scalar `0x41..=0x5A → +0x20` rule (no trie lookup, single byte per
+/// position). The first chunk containing a non-ASCII byte switches the
+/// remainder of the input over to the per-codepoint trie-driven path.
+fn casefold_ascii_fastpath<'a>(input: &'a str) -> Cow<'a, str> {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let ptr = bytes.as_ptr();
+
+    // First scan: locate the first non-ASCII byte (if any) and the first
+    // ASCII uppercase byte (if any), to decide whether allocation is needed.
+    let mut pos = 0usize;
+    let mut first_change: Option<usize> = None;
+
+    // SIMD-driven ASCII probe: 64-byte chunks scanning for any byte >= 0x80.
+    while pos + 64 <= len {
+        // SAFETY: `pos + 64 <= len`, so the pointer is valid for 64 bytes.
+        let nonascii = unsafe { crate::simd::scan_chunk(ptr.add(pos), 0x80) };
+        if nonascii != 0 {
+            // Non-ASCII somewhere in this chunk — break out and delegate to
+            // the scalar path for the entire input. Trying to splice the
+            // ASCII prefix here would not save work (the scalar path's own
+            // pre-scan does the same prefix detection in tight scalar code).
+            return casefold_scalar(input, CaseFoldMode::Standard);
+        }
+        // Pure-ASCII chunk: probe for an uppercase byte to decide whether
+        // we even need to allocate. We use a second SIMD scan with bound
+        // `0x41` (`'A'`) and refine in scalar if any byte >= 'A' exists,
+        // since 'A'..='Z' is a tiny window inside [0x41, 0x80).
+        let upper_or_more = unsafe { crate::simd::scan_chunk(ptr.add(pos), b'A') };
+        if upper_or_more != 0 {
+            // Some byte is >= 'A'. Find the first byte that is uppercase ASCII.
+            let mut mask = upper_or_more;
+            while mask != 0 {
+                let bit = mask.trailing_zeros() as usize;
+                mask &= mask.wrapping_sub(1);
+                let b = bytes[pos + bit];
+                if b.is_ascii_uppercase() {
+                    first_change = Some(pos + bit);
+                    break;
+                }
+            }
+            if first_change.is_some() {
+                break;
+            }
+        }
+        pos += 64;
+    }
+
+    // Tail (or whole input if it's < 64 bytes): scan byte-by-byte for the
+    // first uppercase ASCII or any non-ASCII byte.
+    if first_change.is_none() {
+        let mut tail = pos;
+        while tail < len {
+            let b = bytes[tail];
+            if b >= 0x80 {
+                // Hit a non-ASCII byte before finding any uppercase: defer to
+                // scalar (it will re-scan, but the input is by definition
+                // not pure ASCII so the SIMD fast path is exhausted anyway).
+                return casefold_scalar(input, CaseFoldMode::Standard);
+            }
+            if b.is_ascii_uppercase() {
+                first_change = Some(tail);
+                break;
+            }
+            tail += 1;
+        }
+    }
+
+    let Some(start) = first_change else {
+        // Pure ASCII, no uppercase: borrowed.
+        return Cow::Borrowed(input);
+    };
+
+    // We have a definite change at `start`. Build the output:
+    //   - copy bytes [0, start) verbatim
+    //   - lowercase bytes [start, ?) in scalar: `b | 0x20` for 'A'..='Z',
+    //     copy others, until we hit either end-of-input or a non-ASCII byte.
+    //   - if we hit a non-ASCII byte, append the per-codepoint folded tail.
+    let mut out = String::with_capacity(len);
+    // SAFETY: bytes [0, start) are pure ASCII (we only walked past them
+    // when no byte was >= 0x80), so they are valid UTF-8.
+    out.push_str(unsafe { core::str::from_utf8_unchecked(&bytes[..start]) });
+
+    let mut i = start;
+    while i < len {
+        let b = bytes[i];
+        if b >= 0x80 {
+            // Switch to per-codepoint fallback for the rest of the input.
+            // SAFETY: `i` is on a UTF-8 boundary because we only advanced
+            // through ASCII bytes (each 1 byte wide) up to this point.
+            let rest = unsafe { core::str::from_utf8_unchecked(&bytes[i..]) };
+            for ch in rest.chars() {
+                out.push(casefold_char(ch, CaseFoldMode::Standard));
+            }
+            return Cow::Owned(out);
+        }
+        if b.is_ascii_uppercase() {
+            // Lowercase via OR with 0x20.
+            out.push((b | 0x20) as char);
+        } else {
+            out.push(b as char);
+        }
+        i += 1;
+    }
     Cow::Owned(out)
 }
 

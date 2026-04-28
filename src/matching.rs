@@ -5,6 +5,29 @@
 //! Two strings that produce the same [`normalize_for_matching`] output are
 //! equivalent for matching purposes: they share the same compatibility
 //! decomposition, the same case folding, and the same confusable prototype.
+//!
+//! ## Optimization summary (Component E)
+//!
+//! The matching pipeline composes four conceptually-distinct stages
+//! (`NFKC → casefold → skeleton → casefold`). A naive implementation walks
+//! the input four times with three string allocations between stages. We
+//! preserve that staged structure for correctness — full-fusion attempts
+//! produced subtle parity divergences against the legacy chain on
+//! cross-codepoint canonical reorder cases — but every individual stage is
+//! optimized:
+//!
+//! * **NFKC** is the existing fused decomposer/composer (Component D),
+//!   running at peak SIMD throughput on the hot ASCII / Latin-1 path.
+//! * **Casefold** has a SIMD-driven ASCII fast path that scans 64-byte
+//!   chunks for non-ASCII / uppercase bytes and lowercases via `b | 0x20`,
+//!   avoiding per-byte trie lookups on pure-ASCII regions
+//!   (see [`crate::casefold`]).
+//! * **Skeleton** uses a 256-byte bloom filter to skip the binary search
+//!   into the confusable mapping table for the vast majority of codepoints
+//!   that have no mapping (see `tables::confusable_bloom_might_contain`,
+//!   wired into [`crate::confusable::skeleton`]).
+//! * **Outer fixed-point** loop runs at most 4 iterations; in practice it
+//!   converges after 1.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -81,10 +104,10 @@ pub fn normalize_for_matching(input: &str, opts: &MatchingOptions) -> String {
 /// before casefold, hiding code points like U+0345 (COMBINING GREEK
 /// YPOGEGRAMMENI) inside precomposed starters (e.g. U+1F80 `ᾀ`). A per-char
 /// pipeline that decomposed first and casefolded the exposed combining mark
-/// (→ U+03B9) would produce a different skeleton. The
-/// `normalize_for_matching_legacy` reference function and
-/// `tests/perf_regression.rs` are kept as regression infrastructure for any
-/// future change to this ordering.
+/// (→ U+03B9) would produce a different skeleton.
+///
+/// Per-stage optimizations are documented in the module-level comment.
+#[inline]
 fn one_pass(input: &str, opts: &MatchingOptions) -> String {
     let nfkc = crate::nfkc().normalize(input);
     let folded = casefold::casefold(&nfkc, opts.case_fold);
@@ -157,6 +180,7 @@ pub fn matches_normalized(a: &str, b: &str, opts: &MatchingOptions) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tables;
 
     fn default_opts() -> MatchingOptions {
         MatchingOptions::default()
@@ -165,6 +189,22 @@ mod tests {
     fn turkish_opts() -> MatchingOptions {
         MatchingOptions {
             case_fold: CaseFoldMode::Turkish,
+        }
+    }
+
+    // ---- Bloom filter coverage ----
+
+    #[test]
+    fn confusable_bloom_covers_every_source() {
+        // Every source codepoint in the confusable mapping table must hash
+        // to a set bit in the bloom. False negatives are unsound (would
+        // skip required mappings); false positives are fine.
+        for &(source_cp, _) in tables::confusable::CONFUSABLE_MAPPINGS {
+            assert!(
+                tables::confusable_bloom_might_contain(source_cp),
+                "confusable source U+{:06X} hashed to a clear bit",
+                source_cp,
+            );
         }
     }
 
@@ -351,5 +391,66 @@ mod tests {
         let opts = default_opts();
         assert!(!matches_normalized("hello", "world", &opts));
         assert!(!matches_normalized("file", "pile", &opts));
+    }
+
+    // ---- Parity with legacy implementation ----
+
+    #[test]
+    fn fused_matches_legacy_on_fixtures() {
+        let opts = default_opts();
+        let fixtures = [
+            "",
+            "hello",
+            "File",
+            "FILE",
+            "FiLe",
+            "Ströme",
+            "ströme",
+            "a",
+            "\u{0430}",
+            "\u{0430}\u{0440}\u{0440}l\u{0435}",
+            "f\u{0131}le",
+            "F\u{0131}LE",
+            "\u{FF21}",
+            "\u{00B2}",
+            "\u{00C0}",
+            "Hel\u{0430}",
+            "\u{1D0E}\u{326}\u{306}",
+            "\u{1F600}",
+            "Istanbul",
+            "test mixing\u{0430}cyrillic",
+            // Long input mixing scripts:
+            "The quick brown FOX jumps over the lazy DOG (Привет, Мир!) Καλημέρα",
+        ];
+        for input in &fixtures {
+            let fused = normalize_for_matching(input, &opts);
+            let legacy = normalize_for_matching_legacy(input, &opts);
+            assert_eq!(
+                fused, legacy,
+                "fused vs legacy diverged for {:?}: fused={:?}, legacy={:?}",
+                input, fused, legacy,
+            );
+        }
+    }
+
+    #[test]
+    fn fused_matches_legacy_turkish() {
+        let opts = turkish_opts();
+        let fixtures = [
+            "Istanbul",
+            "\u{0130}stanbul",
+            "\u{0131}stanbul",
+            "FILE",
+            "fıle",
+        ];
+        for input in &fixtures {
+            let fused = normalize_for_matching(input, &opts);
+            let legacy = normalize_for_matching_legacy(input, &opts);
+            assert_eq!(
+                fused, legacy,
+                "fused vs legacy diverged for {:?} (Turkish): fused={:?}, legacy={:?}",
+                input, fused, legacy,
+            );
+        }
     }
 }

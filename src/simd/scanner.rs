@@ -8,6 +8,9 @@
 //! - `unsafe fn simd_splat(val: u8) -> SimdVec`
 //! - `unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u32` (or u64)
 //!   Returns a bitmask with one bit per lane.
+//! - `unsafe fn simd_any_ge(a: SimdVec, b: SimdVec) -> bool`
+//!   Returns whether any lane of `a` is `>= b`. Used for the empty-chunk
+//!   early-out on the ASCII/Latin-1 hot path.
 //! - `const LANES: usize` (bytes per vector).
 //!
 //! For backends with LANES < 64, the macro loads multiple vectors per chunk
@@ -41,8 +44,14 @@ macro_rules! impl_scanner {
             let mut i = 0;
             while i < VECS_PER_CHUNK {
                 let v = unsafe { simd_load(ptr.add(i * LANES)) };
-                let sub_mask = unsafe { simd_cmpge_mask(v, bound_vec) } as u64;
-                mask |= sub_mask << (i * LANES);
+                // Empty-chunk early-out: skip the AND/reduce chain when the
+                // sub-vector has no hits. This is the ASCII/Latin-1 hot
+                // path; on NEON `simd_any_ge` is a single `vmaxvq_u8` and
+                // saves the entire movemask reduction.
+                if unsafe { simd_any_ge(v, bound_vec) } {
+                    let sub_mask = unsafe { simd_cmpge_mask(v, bound_vec) } as u64;
+                    mask |= sub_mask << (i * LANES);
+                }
                 i += 1;
             }
 

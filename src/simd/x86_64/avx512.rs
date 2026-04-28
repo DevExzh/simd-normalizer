@@ -50,6 +50,20 @@ unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u64 {
     _mm512_cmpge_epu8_mask(a, b)
 }
 
+/// Returns `true` iff any lane of `a` is `>= b`.
+///
+/// Thin shim built on `simd_cmpge_mask`; no algorithmic shortcut on
+/// x86_64 since AVX-512 already returns a `u64` mask in one instruction.
+///
+/// # Safety
+/// Requires AVX-512BW.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512bw")]
+#[inline]
+unsafe fn simd_any_ge(a: SimdVec, b: SimdVec) -> bool {
+    unsafe { simd_cmpge_mask(a, b) != 0 }
+}
+
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
 #[cfg(target_arch = "x86_64")]
 crate::simd::scanner::impl_scanner! {

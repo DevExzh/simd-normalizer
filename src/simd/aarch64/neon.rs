@@ -2,11 +2,13 @@
 //!
 //! Processes 64 bytes as 4x 128-bit vectors. NEON provides native
 //! `vcgeq_u8` for unsigned comparison but lacks a direct movemask
-//! instruction; we emulate it using AND + horizontal pairwise addition.
+//! instruction; we emulate it using AND + halved horizontal reduction
+//! via `vaddv_u8`.
 
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::{
-    uint8x16_t, vandq_u8, vcgeq_u8, vdupq_n_u8, vgetq_lane_u8, vld1q_u8, vpaddq_u8,
+    uint8x16_t, vaddv_u8, vandq_u8, vcgeq_u8, vdupq_n_u8, vget_high_u8, vget_low_u8, vld1q_u8,
+    vmaxvq_u8,
 };
 
 /// Number of bytes per NEON register.
@@ -43,14 +45,30 @@ unsafe fn simd_splat(val: u8) -> SimdVec {
     vdupq_n_u8(val)
 }
 
+/// Load the bit-position mask once. Marked `#[inline]` so LLVM hoists the
+/// load out of the macro-generated per-vector loop.
+///
+/// # Safety
+/// Requires NEON (always available on AArch64).
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+unsafe fn load_bit_mask() -> SimdVec {
+    unsafe { vld1q_u8(BIT_MASK.as_ptr()) }
+}
+
 /// Compare `a >= b` for unsigned bytes. Returns a bitmask with one bit per
 /// lane (16 bits used).
 ///
-/// NEON movemask emulation:
+/// NEON movemask emulation (vaddv halves):
 /// 1. `vcgeq_u8` sets each byte to 0xFF or 0x00.
 /// 2. AND with bit-position mask [1,2,4,8,16,32,64,128,1,2,4,8,...].
-/// 3. Three rounds of `vpaddq_u8` pairwise add to compress 16 bytes into 2.
-/// 4. Extract the two result bytes as a u16.
+/// 3. `vget_low_u8` / `vget_high_u8` split into two 8-byte halves (free
+///    aliasing on Apple/Cortex).
+/// 4. `vaddv_u8` reduces each half to a single byte (1 instruction each).
+/// 5. OR-shift the two byte results into the final `u32`.
+///
+/// Total: ~4 ops vs. the previous ~9-op `vandq + vpaddq×3 + vget×2` chain.
 ///
 /// # Safety
 /// Requires NEON (always available on AArch64).
@@ -60,18 +78,27 @@ unsafe fn simd_splat(val: u8) -> SimdVec {
 unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u32 {
     unsafe {
         let cmp = vcgeq_u8(a, b);
-        let bit_mask = vld1q_u8(BIT_MASK.as_ptr());
+        let bit_mask = load_bit_mask();
         let masked = vandq_u8(cmp, bit_mask);
-        // Three rounds of horizontal pairwise addition:
-        // 16 bytes -> 8 -> 4 -> 2
-        let p1 = vpaddq_u8(masked, masked);
-        let p2 = vpaddq_u8(p1, p1);
-        let p3 = vpaddq_u8(p2, p2);
-        // byte 0 = bits 0-7, byte 1 = bits 8-15
-        let lo = vgetq_lane_u8(p3, 0) as u32;
-        let hi = vgetq_lane_u8(p3, 1) as u32;
+        let lo = vaddv_u8(vget_low_u8(masked)) as u32;
+        let hi = vaddv_u8(vget_high_u8(masked)) as u32;
         lo | (hi << 8)
     }
+}
+
+/// Returns `true` iff any lane of `a` is `>= b`.
+///
+/// Used for the empty-chunk early-out: a single `vmaxvq_u8` collapses 16
+/// compare-result lanes into one byte, letting the scanner skip the AND +
+/// `vaddv` chain on ASCII/Latin-1 hot paths.
+///
+/// # Safety
+/// Requires NEON (always available on AArch64).
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+unsafe fn simd_any_ge(a: SimdVec, b: SimdVec) -> bool {
+    vmaxvq_u8(vcgeq_u8(a, b)) != 0
 }
 
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
@@ -155,5 +182,17 @@ mod tests {
         let neon_mask = unsafe { scan_chunk(chunk.as_ptr(), 0xC0) };
         let scalar_mask = unsafe { crate::simd::scalar::scan_chunk(chunk.as_ptr(), 0xC0) };
         assert_eq!(neon_mask, scalar_mask, "NEON must match scalar");
+    }
+
+    #[test]
+    fn neon_any_ge_helper() {
+        unsafe {
+            let zeros = simd_splat(0x00);
+            let ones = simd_splat(0xFF);
+            let bound = simd_splat(0xC0);
+            assert!(!simd_any_ge(zeros, bound));
+            assert!(simd_any_ge(ones, bound));
+            assert!(simd_any_ge(bound, bound));
+        }
     }
 }

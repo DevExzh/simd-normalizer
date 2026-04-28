@@ -55,6 +55,20 @@ unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u32 {
     _mm256_movemask_epi8(eq) as u32
 }
 
+/// Returns `true` iff any lane of `a` is `>= b`.
+///
+/// Thin shim built on `simd_cmpge_mask`; no algorithmic shortcut on
+/// x86_64 since `pmovmskb` is already a single instruction.
+///
+/// # Safety
+/// Requires AVX2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn simd_any_ge(a: SimdVec, b: SimdVec) -> bool {
+    unsafe { simd_cmpge_mask(a, b) != 0 }
+}
+
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
 #[cfg(target_arch = "x86_64")]
 crate::simd::scanner::impl_scanner! {

@@ -52,6 +52,20 @@ unsafe fn simd_cmpge_mask(a: SimdVec, b: SimdVec) -> u32 {
     i8x16_bitmask(cmp) as u16 as u32
 }
 
+/// Returns `true` iff any lane of `a` is `>= b`.
+///
+/// Thin shim built on `simd_cmpge_mask`; wasm `i8x16_bitmask` is already
+/// a single op, so no dedicated reduction wins here.
+///
+/// # Safety
+/// Requires simd128.
+#[cfg(target_arch = "wasm32")]
+#[target_feature(enable = "simd128")]
+#[inline]
+unsafe fn simd_any_ge(a: SimdVec, b: SimdVec) -> bool {
+    unsafe { simd_cmpge_mask(a, b) != 0 }
+}
+
 // Invoke the scanner macro to generate `scan_chunk` and `scan_and_prefetch`.
 #[cfg(target_arch = "wasm32")]
 crate::simd::scanner::impl_scanner! {

@@ -664,25 +664,14 @@ fn process_codepoint(dc: &DecodedCodepoint, state: &mut NormState, out: &mut Str
 
 /// Compose-mode passthrough flush. Called from both the chunk loop and scalar
 /// tail after `state.flush(out, true)` when `composes == true`. Peeks at the
-/// upcoming codepoint `ch` (whose bytes have not yet been consumed) and decides
-/// whether to copy the whole `pass` run verbatim or feed the final ASCII
-/// starter through `NormState` so subsequent combining marks can still see it.
+/// upcoming codepoint via its already-fetched trie value (`next_tv`) and
+/// decides whether to copy the whole `pass` run verbatim or feed the final
+/// ASCII starter through `NormState` so subsequent combining marks can still
+/// see it. The caller passes `next_tv` from the unified `decode_at` so we
+/// avoid a redundant trie lookup on every SIMD-hit codepoint (notably the
+/// dense emoji / Arabic / Hangul streams where this is hit per codepoint).
 #[inline(always)]
-fn flush_compose_passthrough(
-    pass: &str,
-    ch: char,
-    form: Form,
-    state: &mut NormState,
-    out: &mut String,
-) {
-    let cp = ch as u32;
-    // Safety: `cp >= 0x10000` proves `ch` is a supplementary code point, which
-    // is the precondition of `raw_decomp_trie_value_supplementary`.
-    let next_tv = if cp >= 0x10000 {
-        unsafe { tables::raw_decomp_trie_value_supplementary(cp, form.decomp_form()) }
-    } else {
-        tables::raw_decomp_trie_value(ch, form.decomp_form())
-    };
+fn flush_compose_passthrough(pass: &str, next_tv: u32, state: &mut NormState, out: &mut String) {
     if tables::needs_starter_shadow(next_tv) {
         let n = pass.len();
         if n > 1 {
@@ -867,9 +856,9 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             if byte_pos > last_written {
                 state.flush(&mut out, composes);
                 let pass = &input[last_written..byte_pos];
-                // SAFETY: dc.cp came from a valid &str, so it's a valid scalar.
-                let ch = unsafe { char::from_u32_unchecked(dc.cp) };
-                flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
+                // Reuse the trie value already fetched by `decode_at` instead
+                // of re-running `raw_decomp_trie_value` on `dc.cp`.
+                flush_compose_passthrough(pass, dc.tv, &mut state, &mut out);
             }
 
             last_written = byte_pos + width;
@@ -944,9 +933,8 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 if tail_pos > last_written {
                     state.flush(&mut out, composes);
                     let pass = &input[last_written..tail_pos];
-                    // SAFETY: dc.cp came from a valid &str.
-                    let ch = unsafe { char::from_u32_unchecked(dc.cp) };
-                    flush_compose_passthrough(pass, ch, form, &mut state, &mut out);
+                    // Reuse the trie value already fetched by `decode_at`.
+                    flush_compose_passthrough(pass, dc.tv, &mut state, &mut out);
                 }
 
                 last_written = tail_pos + width;

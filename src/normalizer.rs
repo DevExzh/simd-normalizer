@@ -237,25 +237,6 @@ fn is_cjk_unified(cp: u32) -> bool {
     (0x4E00..=0x9FFF).contains(&cp) || (0x3400..=0x4DBF).contains(&cp)
 }
 
-/// Check if a supplementary code point (cp >= 0x10000) is safe (CCC=0, no
-/// decomposition in any normalization form). Covers the vast majority of
-/// supplementary characters; only narrow exception ranges need trie lookups.
-///
-/// Retained as a documented invariant of the supplementary safe range; the
-/// unified `decode_at` pipeline now derives the same property from a single
-/// trie lookup, so this helper is consulted only by its own tests.
-#[allow(dead_code)]
-#[inline(always)]
-fn is_supp_safe(cp: u32) -> bool {
-    if cp >= 0x20000 {
-        // Plane 2+: safe except CJK Compatibility Ideographs Supplement
-        return !(0x2F800..=0x2FA1F).contains(&cp);
-    }
-    // Plane 1: core emoji and symbols block (U+1F252-U+1FBEF) is safe.
-    // Verified: no decompositions and CCC=0 for all normalization forms.
-    (0x1F252..=0x1FBEF).contains(&cp)
-}
-
 /// Decompose a character and feed each resulting entry into the accumulation state.
 ///
 /// Uses a single trie lookup with passthrough fast-paths for non-decomposing
@@ -307,104 +288,6 @@ fn process_char(
     for entry in decomp_buf.as_slice() {
         state.feed_entry(entry.ch, entry.ccc, out, form.composes());
     }
-}
-
-/// Process a non-CJK, non-Hangul character using a pre-computed trie value.
-///
-/// Used by the NFC/NFKC passthrough path in the SIMD loop to avoid a redundant
-/// trie lookup (the caller already looked up the trie value to decide whether
-/// the character is passthrough).
-#[allow(dead_code)]
-#[inline(always)]
-fn process_from_trie(
-    ch: char,
-    tv: u32,
-    state: &mut NormState,
-    out: &mut String,
-    form: Form,
-    decomp_buf: &mut CccBuffer,
-) {
-    if !tables::has_decomposition(tv) {
-        let ccc = tables::ccc_from_trie_value(tv);
-        state.feed_entry(ch, ccc, out, form.composes());
-    } else {
-        decomp_buf.clear();
-        decompose::decompose_from_trie_value(ch, tv, decomp_buf, form.decomp_form());
-        for entry in decomp_buf.as_slice() {
-            state.feed_entry(entry.ch, entry.ccc, out, form.composes());
-        }
-    }
-}
-
-/// Process a non-CJK, non-Hangul character for NFD/NFKD using a pre-computed
-/// trie value. Avoids `DecompResult` enum construction by inlining the expansion
-/// path and specializing the common 2-entry case (starter + single combining mark).
-#[allow(dead_code)]
-#[inline(always)]
-fn process_from_trie_nfd(
-    ch: char,
-    tv: u32,
-    state: &mut NormState,
-    out: &mut String,
-    decomp_form: DecompForm,
-) {
-    if !tables::has_decomposition(tv) {
-        // Non-decomposing character (e.g. combining mark): extract CCC and feed.
-        let ccc = tables::ccc_from_trie_value(tv);
-        state.feed_entry_nfd(ch, ccc, out);
-        return;
-    }
-
-    // Fast path: expansion (the vast majority of decomposing BMP characters).
-    if let Some(data) = tables::expansion_data_from_trie_value(tv, decomp_form) {
-        // Specialize 2-entry expansion: starter + single combining mark.
-        // This is the most common case (precomposed Latin, Greek, Cyrillic, etc.)
-        // and avoids one feed_entry_nfd call per character.
-        if data.len() == 2 {
-            let e0 = data[0];
-            let ccc0 = (e0 >> tables::EXPANSION_CCC_SHIFT) as u8;
-            if ccc0 == 0 {
-                // First entry is a starter: flush previous state, set new starter.
-                state.flush_nfd(out);
-                let cp0 = e0 & tables::EXPANSION_CP_MASK;
-                debug_assert!(cp0 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp0));
-                state.current_starter = Some(unsafe { char::from_u32_unchecked(cp0) });
-                // Second entry: combine directly without feed_entry_nfd overhead.
-                let e1 = data[1];
-                let cp1 = e1 & tables::EXPANSION_CP_MASK;
-                let ccc1 = (e1 >> tables::EXPANSION_CCC_SHIFT) as u8;
-                debug_assert!(cp1 <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp1));
-                let ch1 = unsafe { char::from_u32_unchecked(cp1) };
-                if ccc1 != 0 {
-                    state.ccc_buf.push(ch1, ccc1);
-                } else {
-                    // Both starters (rare): use general path for second entry.
-                    state.feed_entry_nfd(ch1, 0, out);
-                }
-                return;
-            }
-        }
-        // General expansion loop (3+ entries or first entry is non-starter).
-        for &entry in data {
-            let cp = entry & tables::EXPANSION_CP_MASK;
-            let ccc = (entry >> tables::EXPANSION_CCC_SHIFT) as u8;
-            debug_assert!(cp <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&cp));
-            let exp_ch = unsafe { char::from_u32_unchecked(cp) };
-            state.feed_entry_nfd(exp_ch, ccc, out);
-        }
-        return;
-    }
-
-    // Singleton decomposition: the trie value's lower 16 bits are the BMP code point.
-    let info = tv & 0xFFFF;
-    debug_assert!(info <= 0xD7FF || (0xE000..=0xFFFF).contains(&info));
-    let decomposed = unsafe { char::from_u32_unchecked(info) };
-    let ccc = if info <= 0x7F {
-        0
-    } else {
-        tables::lookup_ccc(decomposed)
-    };
-    state.feed_entry_nfd(decomposed, ccc, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -1540,56 +1423,5 @@ mod tests {
     #[test]
     fn cjk_unified_just_after_main() {
         assert!(!is_cjk_unified(0xA000));
-    }
-
-    // ===================================================================
-    // 6. is_supp_safe() boundary tests
-    // ===================================================================
-
-    #[test]
-    fn supp_safe_plane2_start() {
-        // 0x20000 is Plane 2 start, not in compat range -> true
-        assert!(is_supp_safe(0x20000));
-    }
-
-    #[test]
-    fn supp_safe_cjk_compat_supplement_start() {
-        assert!(!is_supp_safe(0x2F800));
-    }
-
-    #[test]
-    fn supp_safe_cjk_compat_supplement_end() {
-        assert!(!is_supp_safe(0x2FA1F));
-    }
-
-    #[test]
-    fn supp_safe_just_after_compat_supplement() {
-        assert!(is_supp_safe(0x2FA20));
-    }
-
-    #[test]
-    fn supp_safe_plane1_safe_range_start() {
-        assert!(is_supp_safe(0x1F252));
-    }
-
-    #[test]
-    fn supp_safe_plane1_safe_range_end() {
-        assert!(is_supp_safe(0x1FBEF));
-    }
-
-    #[test]
-    fn supp_safe_just_before_plane1_safe_range() {
-        assert!(!is_supp_safe(0x1F251));
-    }
-
-    #[test]
-    fn supp_safe_just_after_plane1_safe_range() {
-        assert!(!is_supp_safe(0x1FBF0));
-    }
-
-    #[test]
-    fn supp_safe_smp_start_before_safe_range() {
-        // 0x10000 is SMP start, before the safe range
-        assert!(!is_supp_safe(0x10000));
     }
 }

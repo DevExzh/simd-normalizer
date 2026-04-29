@@ -18,11 +18,6 @@ const LANES: usize = 16;
 #[cfg(target_arch = "aarch64")]
 type SimdVec = uint8x16_t;
 
-/// Bit-position mask for movemask emulation.
-/// Each byte contains 2^(position % 8): [1, 2, 4, 8, 16, 32, 64, 128, ...].
-#[cfg(target_arch = "aarch64")]
-const BIT_MASK: [u8; 16] = [1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128];
-
 /// Load 16 bytes from an unaligned pointer.
 ///
 /// # Safety
@@ -54,7 +49,7 @@ unsafe fn simd_splat(val: u8) -> SimdVec {
 #[target_feature(enable = "neon")]
 #[inline]
 unsafe fn load_bit_mask() -> SimdVec {
-    unsafe { vld1q_u8(BIT_MASK.as_ptr()) }
+    unsafe { vld1q_u8(super::MOVEMASK_BIT_MASK.as_ptr()) }
 }
 
 /// Compare `a >= b` for unsigned bytes. Returns a bitmask with one bit per

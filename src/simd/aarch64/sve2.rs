@@ -92,10 +92,6 @@
 
 #![cfg(target_arch = "aarch64")]
 
-/// Bit-position mask for the NEON-style movemask reduction at the bottom of
-/// `simd_cmpge_mask_sve`. Each byte holds `1 << (position & 7)`.
-const BIT_MASK: [u8; 16] = [1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128];
-
 /// Number of bytes per logical sub-vector. Pinned to 16 (NEON-equivalent)
 /// regardless of runtime SVE VL — see "Vector length" in the module
 /// docstring.
@@ -149,7 +145,7 @@ unsafe fn simd_cmpge_mask_sve(ptr: *const u8, bound: u8) -> u32 {
             "umov    {hi:w}, v5.b[0]",
             ptr     = in(reg)  ptr,
             bound   = in(reg)  bound,
-            bm_ptr  = in(reg)  BIT_MASK.as_ptr(),
+            bm_ptr  = in(reg)  super::MOVEMASK_BIT_MASK.as_ptr(),
             sixteen = in(reg)  SUB_VEC_BYTES as u64,
             lo      = lateout(reg) lo,
             hi      = lateout(reg) hi,

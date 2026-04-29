@@ -10,11 +10,12 @@
 //! - `aarch64::neon`
 //! - `wasm32::simd128`
 //!
-//! The dispatch layer selects the best backend via a `SimdVTable` struct:
+//! The dispatch layer selects the best backend per architecture:
 //! - x86_64 + std: runtime CPUID via `OnceLock<&'static SimdVTable>`
 //! - x86_64 + no_std: compile-time via `cfg(target_feature)`
-//! - aarch64 + std: runtime probe via `is_aarch64_feature_detected!("sve2")`
-//!   selecting `VTABLE_SVE2` when available, else `VTABLE_NEON`
+//! - aarch64 + std: runtime SVE2 probe cached in an `AtomicU8`, with the
+//!   public `scan_chunk` / `scan_and_prefetch` wrappers branching directly
+//!   into the chosen backend so the NEON path inlines into the bit-walk
 //! - aarch64 + no_std: compile-time via `cfg(target_feature = "sve2")`
 //! - wasm32: simd128 if compiled with the feature, else scalar
 //! - other: scalar fallback
@@ -59,6 +60,12 @@ pub mod wasm32;
 /// A single `&'static SimdVTable` reference is resolved once (at runtime on
 /// x86_64+std, at compile time elsewhere) and reused for every subsequent call.
 /// Future fused pipeline operations (e.g. scan + case-fold) will be added here.
+///
+/// On aarch64 the public `scan_chunk` / `scan_and_prefetch` entry points
+/// branch directly to the chosen backend (NEON or SVE2) without going through
+/// this struct, so its fields appear unread there. This is intentional: the
+/// direct branch keeps the NEON intrinsics inlinable into the bit-walk loop.
+#[allow(dead_code)]
 pub(crate) struct SimdVTable {
     pub scan_chunk: unsafe fn(*const u8, u8) -> u64,
     pub scan_and_prefetch: unsafe fn(*const u8, *const u8, *const u8, u8) -> u64,
@@ -181,25 +188,46 @@ mod dispatch {
 }
 
 // ===========================================================================
-// aarch64 + std: runtime dispatch via OnceLock + is_aarch64_feature_detected
+// aarch64 + std: runtime dispatch via direct branch (NEON or SVE2)
 // ===========================================================================
+//
+// We deliberately avoid an `OnceLock<&'static SimdVTable>` here because that
+// hides the chosen backend behind a function pointer that LLVM cannot inline
+// across the SIMD-hit bit-walk on every chunk. Instead we cache the SVE2
+// detection result in a `AtomicU8` and have the public `scan_chunk` /
+// `scan_and_prefetch` wrappers branch directly to the named backend, so the
+// NEON fast path inlines the NEON intrinsic into the bit-walk (matching the
+// pre-SVE2-dispatch shape). The atomic is initialized exactly once on the
+// first call; thereafter it is a single relaxed load + branch.
 #[cfg(all(feature = "std", target_arch = "aarch64"))]
 mod dispatch {
-    use super::SimdVTable;
-    use std::sync::OnceLock;
+    use core::sync::atomic::{AtomicU8, Ordering};
 
-    static VTABLE: OnceLock<&'static SimdVTable> = OnceLock::new();
+    /// 0 = not yet detected, 1 = NEON only, 2 = SVE2 available.
+    static STATE: AtomicU8 = AtomicU8::new(0);
 
-    fn detect_best() -> &'static SimdVTable {
-        if std::arch::is_aarch64_feature_detected!("sve2") {
-            return &super::VTABLE_SVE2;
-        }
-        &super::VTABLE_NEON
+    #[cold]
+    fn detect_and_store() -> u8 {
+        let chosen = if std::arch::is_aarch64_feature_detected!("sve2") {
+            2
+        } else {
+            1
+        };
+        // Relaxed is sufficient: STATE is a hint, all branches lead to a
+        // semantically-equivalent scanner. Multiple writes converge to the
+        // same value.
+        STATE.store(chosen, Ordering::Relaxed);
+        chosen
     }
 
+    /// Returns `true` if SVE2 is available. Initialises on first call.
     #[inline]
-    pub(crate) fn get_vtable() -> &'static SimdVTable {
-        VTABLE.get_or_init(detect_best)
+    pub(crate) fn sve2_enabled() -> bool {
+        let v = STATE.load(Ordering::Relaxed);
+        if v == 0 {
+            return detect_and_store() == 2;
+        }
+        v == 2
     }
 }
 
@@ -208,18 +236,10 @@ mod dispatch {
 // ===========================================================================
 #[cfg(all(not(feature = "std"), target_arch = "aarch64"))]
 mod dispatch {
-    use super::SimdVTable;
-
-    #[inline]
-    pub(crate) fn get_vtable() -> &'static SimdVTable {
-        #[cfg(target_feature = "sve2")]
-        {
-            return &super::VTABLE_SVE2;
-        }
-        #[cfg(not(target_feature = "sve2"))]
-        {
-            &super::VTABLE_NEON
-        }
+    /// Compile-time decision; this function const-folds completely.
+    #[inline(always)]
+    pub(crate) fn sve2_enabled() -> bool {
+        cfg!(target_feature = "sve2")
     }
 }
 
@@ -268,14 +288,30 @@ mod dispatch {
 ///
 /// Dispatches to the best available SIMD backend for the current platform.
 /// On x86_64 with `std`, the first call triggers runtime CPUID detection via
-/// `OnceLock`; subsequent calls are a single pointer dereference.
+/// `OnceLock`; subsequent calls are a single pointer dereference. On aarch64
+/// with `std` the path is a single `AtomicU8` load + branch into the chosen
+/// backend, so the NEON intrinsics inline into the bit-walk loop.
 ///
 /// # Safety
 /// - `ptr` must be valid for 64 bytes of read access.
 #[inline]
 pub(crate) unsafe fn scan_chunk(ptr: *const u8, bound: u8) -> u64 {
-    let vt = dispatch::get_vtable();
-    unsafe { (vt.scan_chunk)(ptr, bound) }
+    #[cfg(target_arch = "aarch64")]
+    {
+        if dispatch::sve2_enabled() {
+            // SAFETY: caller guarantees `ptr` is valid for 64 bytes.
+            unsafe { aarch64::sve2::scan_chunk(ptr, bound) }
+        } else {
+            // SAFETY: caller guarantees `ptr` is valid for 64 bytes.
+            unsafe { aarch64::neon::scan_chunk(ptr, bound) }
+        }
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let vt = dispatch::get_vtable();
+        // SAFETY: caller guarantees `ptr` is valid for 64 bytes.
+        unsafe { (vt.scan_chunk)(ptr, bound) }
+    }
 }
 
 /// Scan a 64-byte chunk and issue prefetch hints for upcoming data.
@@ -294,8 +330,24 @@ pub(crate) unsafe fn scan_and_prefetch(
     prefetch_l2: *const u8,
     bound: u8,
 ) -> u64 {
-    let vt = dispatch::get_vtable();
-    unsafe { (vt.scan_and_prefetch)(ptr, prefetch_l1, prefetch_l2, bound) }
+    #[cfg(target_arch = "aarch64")]
+    {
+        if dispatch::sve2_enabled() {
+            // SAFETY: caller guarantees `ptr` is valid for 64 bytes; prefetch
+            // pointers are non-faulting hints.
+            unsafe { aarch64::sve2::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
+        } else {
+            // SAFETY: see above.
+            unsafe { aarch64::neon::scan_and_prefetch(ptr, prefetch_l1, prefetch_l2, bound) }
+        }
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let vt = dispatch::get_vtable();
+        // SAFETY: caller guarantees `ptr` is valid for 64 bytes; prefetch
+        // pointers are non-faulting hints.
+        unsafe { (vt.scan_and_prefetch)(ptr, prefetch_l1, prefetch_l2, bound) }
+    }
 }
 
 /// Find the byte offset of the first byte >= `bound` in `bytes`.
@@ -381,6 +433,7 @@ mod tests {
         assert_eq!(find_first_above(bytes, 0xC0), 64);
     }
 
+    #[cfg(not(target_arch = "aarch64"))]
     #[test]
     fn vtable_get_returns_consistent_reference() {
         let vt1 = dispatch::get_vtable();
@@ -389,5 +442,14 @@ mod tests {
             core::ptr::eq(vt1, vt2),
             "get_vtable() must return the same reference"
         );
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn aarch64_dispatch_state_stable() {
+        // First call may initialise; both calls must agree.
+        let a = dispatch::sve2_enabled();
+        let b = dispatch::sve2_enabled();
+        assert_eq!(a, b, "sve2_enabled() must be stable across calls");
     }
 }

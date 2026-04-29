@@ -18,7 +18,7 @@
 //! `scan_chunk` / `scan_and_prefetch`) are realised here as a single
 //! `#[target_feature(enable = "sve2")]` `unsafe fn` per logical step,
 //! implemented with `core::arch::asm!` (`nostack, preserves_flags,
-//! readonly`), mirroring the discipline used in [`crate::simd::prefetch`].
+//! readonly`), mirroring the discipline used in `crate::simd::prefetch`.
 //! Where helpers must hand SVE state between steps, we keep the SVE work
 //! within a single asm block and exchange only scalar (`u32` / `u64` /
 //! `*const u8`) values across function boundaries — i.e. we never construct a

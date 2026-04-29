@@ -21,7 +21,7 @@
 //! * **Casefold** has a SIMD-driven ASCII fast path that scans 64-byte
 //!   chunks for non-ASCII / uppercase bytes and lowercases via `b | 0x20`,
 //!   avoiding per-byte trie lookups on pure-ASCII regions
-//!   (see [`crate::casefold`]).
+//!   (see [`mod@crate::casefold`]).
 //! * **Skeleton** uses a 256-byte bloom filter to skip the binary search
 //!   into the confusable mapping table for the vast majority of codepoints
 //!   that have no mapping (see `tables::confusable_bloom_might_contain`,

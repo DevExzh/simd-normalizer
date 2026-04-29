@@ -499,12 +499,13 @@ fn feed_singleton(tv: u32, state: &mut NormState, out: &mut String, composes: bo
     }
 }
 
-/// Cold helper: feed a combining mark (CCC > 0) into `state`. Combining marks
-/// drive the CCC reorder chain inside `NormState`, which is rare on the dense
-/// scripts (CJK / Hangul / emoji) where the SIMD-hit branch dominates.
-/// Splitting it out lets the hot starter path stay branch-light.
-#[cold]
-#[inline(never)]
+/// Helper: feed a combining mark (CCC > 0) into `state`. Combining marks
+/// drive the CCC reorder chain inside `NormState`. On dense scripts (CJK /
+/// Hangul / emoji) where the SIMD-hit branch dominates this is rare, but on
+/// scripts dominated by combining marks (Arabic, the `worst_case` base+marks
+/// stream) it is hit on every codepoint, so we keep it `#[inline]` so it
+/// folds into the bit-walk and benefits from `feed_entry_nfd`'s own inlining.
+#[inline]
 fn feed_combining_mark(ch: char, ccc: u8, state: &mut NormState, out: &mut String, composes: bool) {
     if composes {
         state.feed_entry(ch, ccc, out, true);

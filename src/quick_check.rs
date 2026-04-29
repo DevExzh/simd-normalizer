@@ -79,6 +79,12 @@ fn is_kana(cp: u32) -> bool {
 /// - `safe_below`: code point below which CCC=0 and QC=Yes is guaranteed.
 /// - `hangul_safe`: whether Hangul Syllables (U+AC00..U+D7A3) are QC=Yes for this form.
 /// - `kana_safe`: whether Hiragana/Katakana (U+3040..U+30FF) are QC=Yes for this form.
+/// - `latin1_upper_safe`: whether U+00C0..U+00FF (precomposed Latin Supplement upper)
+///   is uniformly CCC=0 and QC=Yes. True for NFC/NFKC (precomposed forms are kept
+///   precomposed under both compose-normalizing forms). False for NFD/NFKD where
+///   they all decompose. NFC already has `simd_bound=0xCC` which skips this range
+///   in bulk; the flag is consulted on the bit-walk for forms whose `simd_bound`
+///   does flag bytes in the U+00C0..U+00FF lead-byte range.
 #[inline]
 fn quick_check_impl(
     input: &str,
@@ -87,12 +93,20 @@ fn quick_check_impl(
     safe_below: u32,
     hangul_safe: bool,
     kana_safe: bool,
+    latin1_upper_safe: bool,
 ) -> IsNormalized {
     let bytes = input.as_bytes();
     let len = bytes.len();
 
     if len < 64 {
-        return quick_check_scalar(input, qc_shift, safe_below, hangul_safe, kana_safe);
+        return quick_check_scalar(
+            input,
+            qc_shift,
+            safe_below,
+            hangul_safe,
+            kana_safe,
+            latin1_upper_safe,
+        );
     }
 
     let ptr = bytes.as_ptr();
@@ -144,6 +158,7 @@ fn quick_check_impl(
             // Fast path: known-safe code point ranges (CCC=0 and QC=Yes).
             let cp = ch as u32;
             if cp < safe_below
+                || (latin1_upper_safe && (0x00C0..0x0100).contains(&cp))
                 || is_cjk_unified(cp)
                 || (hangul_safe && (0xAC00..=0xD7A3).contains(&cp))
                 || (kana_safe && is_kana(cp))
@@ -205,6 +220,7 @@ fn quick_check_impl(
         // Fast path: known-safe code point ranges.
         let cp = ch as u32;
         if cp < safe_below
+            || (latin1_upper_safe && (0x00C0..0x0100).contains(&cp))
             || is_cjk_unified(cp)
             || (hangul_safe && (0xAC00..=0xD7A3).contains(&cp))
             || (cp >= 0x10000 && is_supp_safe(cp))
@@ -238,6 +254,7 @@ fn quick_check_scalar(
     safe_below: u32,
     hangul_safe: bool,
     kana_safe: bool,
+    latin1_upper_safe: bool,
 ) -> IsNormalized {
     let mut last_ccc: u8 = 0;
     let mut result = IsNormalized::Yes;
@@ -253,6 +270,7 @@ fn quick_check_scalar(
 
         // Fast path: known-safe code point ranges (CCC=0 and QC=Yes).
         if cp < safe_below
+            || (latin1_upper_safe && (0x00C0..0x0100).contains(&cp))
             || is_cjk_unified(cp)
             || (hangul_safe && (0xAC00..=0xD7A3).contains(&cp))
             || (kana_safe && is_kana(cp))
@@ -304,49 +322,113 @@ fn quick_check_scalar(
 /// Quick-check whether `input` is in NFC.
 #[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfc(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFC_SHIFT, 0xCC, 0x0300, true, true)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFC_SHIFT,
+        0xCC,
+        0x0300,
+        true,
+        true,
+        true,
+    )
 }
 
 /// Quick-check whether `input` is in NFC.
 #[cfg(feature = "quick_check_oracle")]
 pub fn quick_check_nfc(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFC_SHIFT, 0xCC, 0x0300, true, true)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFC_SHIFT,
+        0xCC,
+        0x0300,
+        true,
+        true,
+        true,
+    )
 }
 
 /// Quick-check whether `input` is in NFD.
 #[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfd(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFD_SHIFT, 0xC3, 0x00C0, false, false)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFD_SHIFT,
+        0xC3,
+        0x00C0,
+        false,
+        false,
+        false,
+    )
 }
 
 /// Quick-check whether `input` is in NFD.
 #[cfg(feature = "quick_check_oracle")]
 pub fn quick_check_nfd(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFD_SHIFT, 0xC3, 0x00C0, false, false)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFD_SHIFT,
+        0xC3,
+        0x00C0,
+        false,
+        false,
+        false,
+    )
 }
 
 /// Quick-check whether `input` is in NFKC.
 #[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfkc(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFKC_SHIFT, 0xC0, 0x00A0, true, true)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFKC_SHIFT,
+        0xC0,
+        0x00A0,
+        true,
+        true,
+        true,
+    )
 }
 
 /// Quick-check whether `input` is in NFKC.
 #[cfg(feature = "quick_check_oracle")]
 pub fn quick_check_nfkc(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFKC_SHIFT, 0xC0, 0x00A0, true, true)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFKC_SHIFT,
+        0xC0,
+        0x00A0,
+        true,
+        true,
+        true,
+    )
 }
 
 /// Quick-check whether `input` is in NFKD.
 #[cfg(not(feature = "quick_check_oracle"))]
 pub(crate) fn quick_check_nfkd(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFKD_SHIFT, 0xC0, 0x00A0, false, false)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFKD_SHIFT,
+        0xC0,
+        0x00A0,
+        false,
+        false,
+        false,
+    )
 }
 
 /// Quick-check whether `input` is in NFKD.
 #[cfg(feature = "quick_check_oracle")]
 pub fn quick_check_nfkd(input: &str) -> IsNormalized {
-    quick_check_impl(input, tables::CCC_QC_NFKD_SHIFT, 0xC0, 0x00A0, false, false)
+    quick_check_impl(
+        input,
+        tables::CCC_QC_NFKD_SHIFT,
+        0xC0,
+        0x00A0,
+        false,
+        false,
+        false,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +456,7 @@ fn quick_check_impl_oracle(
     let len = bytes.len();
 
     if len < 64 {
-        return quick_check_scalar(input, qc_shift, safe_below, hangul_safe, kana_safe);
+        return quick_check_scalar(input, qc_shift, safe_below, hangul_safe, kana_safe, false);
     }
 
     let ptr = bytes.as_ptr();

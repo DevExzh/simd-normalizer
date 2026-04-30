@@ -609,6 +609,17 @@ fn normalize_scalar<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
 ///
 /// Uses SIMD scanning for inputs >= 64 bytes, with scalar fallback for shorter
 /// inputs and tails. Returns `Cow::Borrowed` if the input was already normalized.
+///
+/// `#[inline]` is intentional: `Form` is dispatched as a runtime parameter
+/// from four single-form public entry points (`Nfc`/`Nfd`/`Nfkc`/`Nfkd`), and
+/// inlining lets the compiler fold all `match form { ... }` branches inside
+/// `process_codepoint`, `feed_expansion`, `decode_at`, etc. into the constant
+/// chosen at the call site. This collapses the inner loop's per-codepoint
+/// `composes` / `decomp_form()` checks to a no-op. The compile-time cost is
+/// four monomorphic copies of the function (~2× current `.text`), which we
+/// accept for the per-codepoint speedup on combining-mark-dense fixtures
+/// (`worst_case`, `already_nfc`).
+#[inline]
 fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     let bytes = input.as_bytes();
     let len = bytes.len();

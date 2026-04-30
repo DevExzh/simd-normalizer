@@ -237,6 +237,97 @@ fn is_cjk_unified(cp: u32) -> bool {
     (0x4E00..=0x9FFF).contains(&cp) || (0x3400..=0x4DBF).contains(&cp)
 }
 
+// ---------------------------------------------------------------------------
+// Latin-1 supplement (U+00C0..=U+00FF) decomposition fast path
+// ---------------------------------------------------------------------------
+//
+// NFD/NFKD on the precomposed Latin-1 supplement is by far the most common
+// "needs work" payload in real-world text (`é`, `ö`, `à`, …). Each codepoint
+// otherwise pays for: trie BMP lookup + has_decomposition mask + expansion
+// table indexing + length read + slice. We can short-circuit the entire
+// pipeline because the canonical *and* compatibility decompositions in this
+// 64-codepoint range are always either (a) self-mapping (e.g. `Æ`, `Ð`,
+// `×`) or (b) `(ASCII letter, single combining mark)` — never longer, never
+// case-dependent. NFD == NFKD here, so a single table covers both forms.
+//
+// The table is indexed by `cp - 0xC0`, where `cp` is the codepoint extracted
+// from the 2-byte UTF-8 sequence with `b0 == 0xC3`. Entry encoding:
+//
+//   * Self-mapping: `(0, 0, 0)`  (the caller falls through to the general
+//     "non-decomposing" path which just bulk-passthrough's the bytes)
+//   * Decomposing:  `(starter_ascii_byte, mark_cp_u16, mark_ccc_u8)`
+//
+// Storing only the ASCII byte for the starter (instead of a `u32` codepoint)
+// keeps the table at 8 bytes/entry (with packing), which fits 64 entries in
+// 8 cache lines.
+
+/// Sentinel meaning "U+00xx maps to itself (no decomposition); use the
+/// general path to bulk-passthrough this codepoint as-is".
+const LATIN1_SELF_MAPPING: (u8, u16, u8) = (0, 0, 0);
+
+/// NFD == NFKD decomposition table for U+00C0..=U+00FF.
+///
+/// Indexed by `cp - 0xC0`. Each `(starter_ascii, mark_cp, mark_ccc)` tuple
+/// describes the canonical decomposition. `starter_ascii == 0` means the
+/// codepoint does not decompose (use the general path).
+///
+/// Hand-derived from `UnicodeData.txt` and verified at module-init time by
+/// the `latin1_table_matches_runtime_lookup` test.
+#[rustfmt::skip]
+static LATIN1_NFD_TABLE: [(u8, u16, u8); 0x40] = [
+    // U+00C0..=U+00CF
+    (b'A', 0x0300, 230), (b'A', 0x0301, 230), (b'A', 0x0302, 230), (b'A', 0x0303, 230),
+    (b'A', 0x0308, 230), (b'A', 0x030A, 230), LATIN1_SELF_MAPPING,  (b'C', 0x0327, 202),
+    (b'E', 0x0300, 230), (b'E', 0x0301, 230), (b'E', 0x0302, 230), (b'E', 0x0308, 230),
+    (b'I', 0x0300, 230), (b'I', 0x0301, 230), (b'I', 0x0302, 230), (b'I', 0x0308, 230),
+    // U+00D0..=U+00DF
+    LATIN1_SELF_MAPPING,  (b'N', 0x0303, 230), (b'O', 0x0300, 230), (b'O', 0x0301, 230),
+    (b'O', 0x0302, 230), (b'O', 0x0303, 230), (b'O', 0x0308, 230), LATIN1_SELF_MAPPING,
+    LATIN1_SELF_MAPPING,  (b'U', 0x0300, 230), (b'U', 0x0301, 230), (b'U', 0x0302, 230),
+    (b'U', 0x0308, 230), (b'Y', 0x0301, 230), LATIN1_SELF_MAPPING,  LATIN1_SELF_MAPPING,
+    // U+00E0..=U+00EF
+    (b'a', 0x0300, 230), (b'a', 0x0301, 230), (b'a', 0x0302, 230), (b'a', 0x0303, 230),
+    (b'a', 0x0308, 230), (b'a', 0x030A, 230), LATIN1_SELF_MAPPING,  (b'c', 0x0327, 202),
+    (b'e', 0x0300, 230), (b'e', 0x0301, 230), (b'e', 0x0302, 230), (b'e', 0x0308, 230),
+    (b'i', 0x0300, 230), (b'i', 0x0301, 230), (b'i', 0x0302, 230), (b'i', 0x0308, 230),
+    // U+00F0..=U+00FF
+    LATIN1_SELF_MAPPING,  (b'n', 0x0303, 230), (b'o', 0x0300, 230), (b'o', 0x0301, 230),
+    (b'o', 0x0302, 230), (b'o', 0x0303, 230), (b'o', 0x0308, 230), LATIN1_SELF_MAPPING,
+    LATIN1_SELF_MAPPING,  (b'u', 0x0300, 230), (b'u', 0x0301, 230), (b'u', 0x0302, 230),
+    (b'u', 0x0308, 230), (b'y', 0x0301, 230), LATIN1_SELF_MAPPING,  (b'y', 0x0308, 230),
+];
+
+/// NFD/NFKD fast path for the Latin-1 supplement (U+00C0..=U+00FF).
+///
+/// Only valid when the byte at `byte_pos` is `0xC3` (the only UTF-8 leading
+/// byte that emits codepoints in this range). Reads `b1`, indexes the table,
+/// and either short-circuits the decode-or-passthrough decision or returns
+/// `None` for self-mapping codepoints (which the caller falls through to
+/// the general non-decomposing path for).
+///
+/// Returns `Some((starter, mark_cp, mark_ccc))` when the codepoint decomposes
+/// to a single ASCII starter + single combining mark.
+///
+/// # Safety
+///
+/// `byte_pos + 1 < len` and the input must be valid UTF-8 starting with
+/// `0xC3` at `byte_pos` — both guaranteed by the SIMD bit-walk's leading-byte
+/// filter and the original `&str` input invariant.
+#[inline(always)]
+unsafe fn latin1_supplement_nfd(bytes: *const u8, byte_pos: usize) -> Option<(u8, char, u8)> {
+    // SAFETY: caller guarantees `byte_pos + 1 < len`.
+    let b1 = unsafe { *bytes.add(byte_pos + 1) };
+    let idx = (b1 & 0x3F) as usize; // b1 = 0x80 | (cp & 0x3F); cp = 0xC0 | (b1 & 0x3F).
+    let entry = LATIN1_NFD_TABLE[idx];
+    if entry.0 == 0 {
+        return None;
+    }
+    // SAFETY: every non-self-mapping entry stores a valid combining-mark
+    // codepoint (all in the U+0300..=U+0327 range, well-formed scalars).
+    let mark = unsafe { char::from_u32_unchecked(entry.1 as u32) };
+    Some((entry.0, mark, entry.2))
+}
+
 /// Decompose a character and feed each resulting entry into the accumulation state.
 ///
 /// Uses a single trie lookup with passthrough fast-paths for non-decomposing
@@ -699,6 +790,32 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 continue;
             }
 
+            // Latin-1 supplement NFD/NFKD fast path: when the leading byte is
+            // 0xC3 (only emits U+00C0..=U+00FF), short-circuit decode + trie
+            // lookup with a 64-entry table. Most precomposed Latin-1 letters
+            // decompose to a single ASCII starter + single combining mark,
+            // which we can emit directly without going through process_codepoint.
+            if !composes && bytes[byte_pos] == 0xC3 {
+                // SAFETY: byte_pos + 1 < len because UTF-8 validity guarantees
+                // the 0xC3 leading byte is followed by exactly one continuation.
+                if let Some((starter, mark, mark_ccc)) =
+                    unsafe { latin1_supplement_nfd(ptr, byte_pos) }
+                {
+                    if byte_pos > last_written {
+                        state.flush_nfd(&mut out);
+                        out.push_str(&input[last_written..byte_pos]);
+                    }
+                    last_written = byte_pos + 2;
+                    state.flush_nfd(&mut out);
+                    // SAFETY: starter is an ASCII byte (< 0x80) by table construction.
+                    out.push(starter as char);
+                    state.ccc_buf.push(mark, mark_ccc);
+                    continue;
+                }
+                // Self-mapping: fall through to the general non-decomposing
+                // bulk-passthrough path below.
+            }
+
             // SAFETY: `byte_pos < len` (bit_pos < 64, chunk_start + 64 <= len)
             // and the byte at `byte_pos` is a UTF-8 leading byte (continuation
             // filter above). The input came from a valid `&str`, so the full
@@ -782,6 +899,25 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                 if utf8::is_continuation_byte(bytes[tail_pos]) {
                     tail_pos += 1;
                     continue;
+                }
+
+                // Latin-1 supplement NFD/NFKD fast path (mirrors bit-walk).
+                if !composes && bytes[tail_pos] == 0xC3 {
+                    // SAFETY: tail_pos + 1 < len by UTF-8 validity.
+                    if let Some((starter, mark, mark_ccc)) =
+                        unsafe { latin1_supplement_nfd(ptr, tail_pos) }
+                    {
+                        if tail_pos > last_written {
+                            state.flush_nfd(&mut out);
+                            out.push_str(&input[last_written..tail_pos]);
+                        }
+                        last_written = tail_pos + 2;
+                        state.flush_nfd(&mut out);
+                        out.push(starter as char);
+                        state.ccc_buf.push(mark, mark_ccc);
+                        tail_pos += 2;
+                        continue;
+                    }
                 }
 
                 // SAFETY: `tail_pos < len` and the byte is a UTF-8 leading
@@ -1047,6 +1183,55 @@ mod tests {
     use alloc::borrow::Cow;
     use alloc::string::String;
     use alloc::vec::Vec;
+
+    // ===================================================================
+    // 0. Latin-1 NFD/NFKD fast-path table verification
+    // ===================================================================
+
+    #[test]
+    fn latin1_table_matches_runtime_lookup_nfd() {
+        // For every codepoint in U+00C0..=U+00FF, verify that our hand-rolled
+        // table entry produces the same NFD output as feeding the codepoint
+        // through the general trie-driven pipeline.
+        for cp in 0xC0u32..=0xFF {
+            let ch = char::from_u32(cp).unwrap();
+            let mut buf = String::new();
+            buf.push(ch);
+            let general: Cow<'_, str> = normalize_impl(&buf, Form::Nfd);
+
+            let entry = LATIN1_NFD_TABLE[(cp - 0xC0) as usize];
+            let mut fast = String::new();
+            if entry.0 == 0 {
+                // Self-mapping: must equal input.
+                fast.push(ch);
+            } else {
+                fast.push(entry.0 as char);
+                fast.push(char::from_u32(entry.1 as u32).unwrap());
+            }
+            assert_eq!(
+                &*general, fast,
+                "NFD mismatch for U+{:04X}: trie={:?} table={:?}",
+                cp, &*general, fast
+            );
+        }
+    }
+
+    #[test]
+    fn latin1_table_matches_runtime_lookup_nfkd() {
+        // NFKD == NFD on this range; verify explicitly.
+        for cp in 0xC0u32..=0xFF {
+            let ch = char::from_u32(cp).unwrap();
+            let mut buf = String::new();
+            buf.push(ch);
+            let nfd: Cow<'_, str> = normalize_impl(&buf, Form::Nfd);
+            let nfkd: Cow<'_, str> = normalize_impl(&buf, Form::Nfkd);
+            assert_eq!(
+                &*nfd, &*nfkd,
+                "NFD/NFKD diverge for U+{:04X}: nfd={:?} nfkd={:?}",
+                cp, &*nfd, &*nfkd
+            );
+        }
+    }
 
     // ===================================================================
     // 1. Form enum methods

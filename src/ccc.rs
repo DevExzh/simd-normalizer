@@ -16,7 +16,12 @@ pub(crate) struct CharAndCcc {
 }
 
 /// Inline capacity for the common case.
-const INLINE_CAP: usize = 18;
+///
+/// Bumped from 18 to 32 to absorb the worst-case fixture (`'a'` + 30 marks
+/// repeated) without spilling to a per-group `Vec` allocation. The struct is
+/// 8 bytes (`char` + `u8` + padding); 32 entries cost 256 bytes on the stack,
+/// which lives in `normalize_impl`'s frame and is well within budget.
+const INLINE_CAP: usize = 32;
 
 /// Buffer for collecting combining characters before canonical ordering sort.
 ///
@@ -242,15 +247,16 @@ mod tests {
     #[test]
     fn test_overflow_to_heap() {
         let mut buf = CccBuffer::new();
-        // With INLINE_CAP=18, we need >18 entries to trigger overflow.
-        for i in 0..19 {
+        // With INLINE_CAP=32, we need >32 entries to trigger overflow.
+        let n = INLINE_CAP + 1;
+        for i in 0..n {
             let ch = char::from_u32(0xE000 + i as u32).unwrap();
-            buf.push(ch, (200 + i) as u8);
+            buf.push(ch, (200 + (i % 50)) as u8);
         }
-        assert_eq!(buf.len(), 19);
+        assert_eq!(buf.len(), n);
         assert!(buf.overflow.is_some());
         let sorted: Vec<CharAndCcc> = buf.sort_and_drain().collect();
-        assert_eq!(sorted.len(), 19);
+        assert_eq!(sorted.len(), n);
         for window in sorted.windows(2) {
             assert!(window[0].ccc <= window[1].ccc);
         }
@@ -260,8 +266,9 @@ mod tests {
     #[test]
     fn test_overflow_stability() {
         let mut buf = CccBuffer::new();
-        // Push >18 entries to trigger overflow, all same CCC for stability check.
-        let chars: Vec<char> = (0..20)
+        // Push >INLINE_CAP entries to trigger overflow, all same CCC for stability check.
+        let n = (INLINE_CAP as u32) + 2;
+        let chars: Vec<char> = (0..n)
             .map(|i| char::from_u32(0xE000 + i).unwrap())
             .collect();
         for &ch in &chars {

@@ -853,10 +853,10 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
         let chunk_b_start = pos + 64;
 
         let (mask_a, mask_b) = unsafe {
-            let prefetch_l1 = ptr
-                .wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
-            let prefetch_l2 = ptr
-                .wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
+            let prefetch_l1 =
+                ptr.wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
+            let prefetch_l2 =
+                ptr.wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
             simd::scan_pair_and_prefetch(
                 ptr.add(chunk_a_start),
                 ptr.add(chunk_b_start),

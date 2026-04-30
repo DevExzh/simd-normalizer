@@ -132,6 +132,7 @@ crate::simd::scanner::impl_scanner! {
 /// - `ptr_a` and `ptr_b` must each point to at least 64 readable bytes.
 /// - NEON must be available (always true on AArch64).
 #[cfg(target_arch = "aarch64")]
+#[allow(dead_code)]
 #[target_feature(enable = "neon")]
 #[inline]
 pub(crate) unsafe fn scan_chunk_pair(ptr_a: *const u8, ptr_b: *const u8, bound: u8) -> (u64, u64) {

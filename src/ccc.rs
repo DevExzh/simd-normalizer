@@ -169,17 +169,36 @@ impl Iterator for SortedDrain<'_> {
 #[cfg(test)]
 impl ExactSizeIterator for SortedDrain<'_> {}
 
-/// Stable insertion sort by CCC. Optimal for small arrays (n <= ~18).
+/// Stable insertion sort by CCC. Optimal for small arrays (n <= ~32).
+///
+/// For larger inputs the call-site dispatches into a counting-sort-by-CCC,
+/// but in the inline-buffer path (which is bounded by `INLINE_CAP`) insertion
+/// sort wins on the constant factor: `CharAndCcc` is 8 bytes, so the entire
+/// inline buffer fits in 4 cache lines and every shift is a single 64-bit
+/// move. Stable.
 #[inline]
 fn insertion_sort_by_ccc(slice: &mut [CharAndCcc]) {
-    for i in 1..slice.len() {
+    let n = slice.len();
+    let mut i = 1;
+    while i < n {
+        // Hoist the key out of `slice` so the inner loop's reads don't alias
+        // its writes (this lets the optimizer use a single register).
         let key = slice[i];
+        let key_ccc = key.ccc;
         let mut j = i;
-        while j > 0 && slice[j - 1].ccc > key.ccc {
-            slice[j] = slice[j - 1];
-            j -= 1;
+        // SAFETY: The loop body only indexes `j-1` when `j > 0`, and `j <= i < n`,
+        // so all indices stay in-bounds. We use unchecked accesses to drop the
+        // panic-on-OOB bounds checks that block tight inner-loop scheduling on
+        // aarch64.
+        unsafe {
+            while j > 0 && slice.get_unchecked(j - 1).ccc > key_ccc {
+                let prev = *slice.get_unchecked(j - 1);
+                *slice.get_unchecked_mut(j) = prev;
+                j -= 1;
+            }
+            *slice.get_unchecked_mut(j) = key;
         }
-        slice[j] = key;
+        i += 1;
     }
 }
 

@@ -736,13 +736,147 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
     let mut pos: usize = 0;
     let ptr = bytes.as_ptr();
 
-    // SIMD chunk loop.
+    // Helper: prefetch the output buffer write-head so write-allocate fills
+    // overlap the SIMD scanner read on the source.
+    macro_rules! prefetch_write_head {
+        ($out:expr) => {
+            unsafe {
+                let write_head = $out.len();
+                let distance = prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE;
+                if write_head + distance <= $out.capacity() {
+                    prefetch::prefetch_write($out.as_ptr().wrapping_add(write_head + distance));
+                }
+            }
+        };
+    }
+
+    // Bit-walk for one already-scanned 64-byte chunk. Implemented as a macro
+    // so the body inlines verbatim at every call site -- this preserves the
+    // per-`form` monomorphization and keeps the bit-walk's many early-exit
+    // branches transparent to LLVM's loop-carried-state analysis. A regular
+    // closure here introduced a measurable regression on the latin1/worst_case
+    // rows because its `&mut`-parameter borrows hid the loop carries.
+    macro_rules! process_chunk {
+        ($chunk_start:expr, $mask:expr) => {{
+            let chunk_start: usize = $chunk_start;
+            let mask: u64 = $mask;
+            if mask != 0 {
+                let mut chunk_mask = mask;
+                while chunk_mask != 0 {
+                    let bit_pos = chunk_mask.trailing_zeros() as usize;
+                    chunk_mask &= chunk_mask.wrapping_sub(1);
+
+                    let byte_pos = chunk_start + bit_pos;
+
+                    if byte_pos < last_written {
+                        continue;
+                    }
+
+                    if utf8::is_continuation_byte(bytes[byte_pos]) {
+                        continue;
+                    }
+
+                    // Latin-1 supplement NFD/NFKD fast path.
+                    if !composes && bytes[byte_pos] == 0xC3 {
+                        if let Some((starter, mark, mark_ccc)) =
+                            unsafe { latin1_supplement_nfd(ptr, byte_pos) }
+                        {
+                            if byte_pos > last_written {
+                                state.flush_nfd(&mut out);
+                                out.push_str(&input[last_written..byte_pos]);
+                            }
+                            last_written = byte_pos + 2;
+                            state.flush_nfd(&mut out);
+                            out.push(starter as char);
+                            state.ccc_buf.push(mark, mark_ccc);
+                            continue;
+                        }
+                    }
+
+                    // SAFETY: byte_pos < len and points to a UTF-8 leading byte.
+                    let dc = unsafe { decode_at(ptr, byte_pos, len, form) };
+                    let width = dc.cp_len as usize;
+
+                    if !composes {
+                        // Hangul algorithmic decomposition.
+                        if (hangul::S_BASE..hangul::S_BASE + hangul::S_COUNT).contains(&dc.cp) {
+                            if byte_pos > last_written {
+                                state.flush_nfd(&mut out);
+                                out.push_str(&input[last_written..byte_pos]);
+                            }
+                            last_written = byte_pos + width;
+                            state.flush_nfd(&mut out);
+                            let ch = unsafe { char::from_u32_unchecked(dc.cp) };
+                            let (l, v, t) = hangul::decompose_hangul(ch);
+                            out.push(l);
+                            out.push(v);
+                            if let Some(t_char) = t {
+                                out.push(t_char);
+                            }
+                            continue;
+                        }
+                        // Non-decomposing starter: bulk-passthrough.
+                        if dc.decomp_kind == DecompKind::None && dc.ccc == 0 {
+                            continue;
+                        }
+                        if byte_pos > last_written {
+                            state.flush_nfd(&mut out);
+                            out.push_str(&input[last_written..byte_pos]);
+                        }
+                        last_written = byte_pos + width;
+                        process_codepoint(&dc, &mut state, &mut out, form);
+                        continue;
+                    }
+
+                    // Compose mode.
+                    if byte_pos > last_written {
+                        state.flush(&mut out, composes);
+                        let pass = &input[last_written..byte_pos];
+                        flush_compose_passthrough(pass, dc.tv, &mut state, &mut out);
+                    }
+                    last_written = byte_pos + width;
+                    process_codepoint(&dc, &mut state, &mut out, form);
+                }
+            }
+        }};
+    }
+
+    // Software-pipelined pair loop: process two adjacent 64-byte chunks per
+    // iteration. The paired scanner issues all 8 NEON loads / 8 compares /
+    // 8 reductions in one block, letting the compiler schedule across NEON
+    // pipes so chunk B's load+compare overlaps chunk A's reduce. On dense
+    // (CJK / Arabic / Hangul / emoji) inputs this is a measurable win; on
+    // ASCII the coarse any-set check inside `scan_chunk_pair` preserves
+    // the empty-mask fast skip.
+    while pos + 128 <= len {
+        let chunk_a_start = pos;
+        let chunk_b_start = pos + 64;
+
+        let (mask_a, mask_b) = unsafe {
+            let prefetch_l1 = ptr
+                .wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
+            let prefetch_l2 = ptr
+                .wrapping_add(pos + prefetch::PREFETCH_L2_DISTANCE * prefetch::CHUNK_SIZE);
+            simd::scan_pair_and_prefetch(
+                ptr.add(chunk_a_start),
+                ptr.add(chunk_b_start),
+                prefetch_l1,
+                prefetch_l2,
+                bound,
+            )
+        };
+
+        prefetch_write_head!(out);
+        process_chunk!(chunk_a_start, mask_a);
+        process_chunk!(chunk_b_start, mask_b);
+
+        pos += 128;
+    }
+
+    // Trailing single chunk (when len % 128 in [64, 128)).
     while pos + 64 <= len {
         let chunk_start = pos;
 
-        // SAFETY: pos + 64 <= len, so ptr.add(pos) is valid for 64 bytes.
-        // Prefetch pointers use wrapping_add because they may exceed the
-        // allocation; prefetch is a non-faulting hint on all architectures.
         let mask = unsafe {
             let prefetch_l1 =
                 ptr.wrapping_add(pos + prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE);
@@ -751,131 +885,8 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
             simd::scan_and_prefetch(ptr.add(pos), prefetch_l1, prefetch_l2, bound)
         };
 
-        // Prefetch the output buffer write-head to overlap write-allocate
-        // fills with the SIMD scanner read on the source. Guarded against the
-        // reallocation boundary: if the prefetched line would land past the
-        // current capacity, skip it (the next push_str will realloc anyway).
-        unsafe {
-            let write_head = out.len();
-            let distance = prefetch::PREFETCH_L1_DISTANCE * prefetch::CHUNK_SIZE;
-            if write_head + distance <= out.capacity() {
-                prefetch::prefetch_write(out.as_ptr().wrapping_add(write_head + distance));
-            }
-        }
-
-        if mask == 0 {
-            // All passthrough: no bytes >= bound in this chunk.
-            pos += 64;
-            continue;
-        }
-
-        // Walk set bits in the mask. Each set bit marks a byte >= bound; the
-        // unified `decode_at` derives UTF-8 width, codepoint, CCC, and decomp
-        // in one pass, then `process_codepoint` dispatches form-specifically.
-        let mut chunk_mask = mask;
-        while chunk_mask != 0 {
-            let bit_pos = chunk_mask.trailing_zeros() as usize;
-            chunk_mask &= chunk_mask.wrapping_sub(1); // clear lowest set bit
-
-            let byte_pos = chunk_start + bit_pos;
-
-            // Skip if we already processed past this position (multi-byte char from previous bit).
-            if byte_pos < last_written {
-                continue;
-            }
-
-            // Skip continuation bytes -- they belong to a char whose leading byte
-            // was already processed.
-            if utf8::is_continuation_byte(bytes[byte_pos]) {
-                continue;
-            }
-
-            // Latin-1 supplement NFD/NFKD fast path: when the leading byte is
-            // 0xC3 (only emits U+00C0..=U+00FF), short-circuit decode + trie
-            // lookup with a 64-entry table. Most precomposed Latin-1 letters
-            // decompose to a single ASCII starter + single combining mark,
-            // which we can emit directly without going through process_codepoint.
-            if !composes && bytes[byte_pos] == 0xC3 {
-                // SAFETY: byte_pos + 1 < len because UTF-8 validity guarantees
-                // the 0xC3 leading byte is followed by exactly one continuation.
-                if let Some((starter, mark, mark_ccc)) =
-                    unsafe { latin1_supplement_nfd(ptr, byte_pos) }
-                {
-                    if byte_pos > last_written {
-                        state.flush_nfd(&mut out);
-                        out.push_str(&input[last_written..byte_pos]);
-                    }
-                    last_written = byte_pos + 2;
-                    state.flush_nfd(&mut out);
-                    // SAFETY: starter is an ASCII byte (< 0x80) by table construction.
-                    out.push(starter as char);
-                    state.ccc_buf.push(mark, mark_ccc);
-                    continue;
-                }
-                // Self-mapping: fall through to the general non-decomposing
-                // bulk-passthrough path below.
-            }
-
-            // SAFETY: `byte_pos < len` (bit_pos < 64, chunk_start + 64 <= len)
-            // and the byte at `byte_pos` is a UTF-8 leading byte (continuation
-            // filter above). The input came from a valid `&str`, so the full
-            // sequence of `cp_len` bytes is guaranteed to be valid UTF-8.
-            let dc = unsafe { decode_at(ptr, byte_pos, len, form) };
-            let width = dc.cp_len as usize;
-
-            // Extended passthrough for decomposition-only forms (NFD/NFKD):
-            // Non-decomposing starters (CCC=0) produce identical output, so
-            // they can be bulk-copied with surrounding passthrough bytes,
-            // avoiding per-character NormState flush + push overhead.
-            if !composes {
-                // Hangul syllables: algorithmic decomposition (the trie reports
-                // them as no-decomp), write jamo directly to output. Must
-                // precede the no-decomp passthrough check below.
-                if (hangul::S_BASE..hangul::S_BASE + hangul::S_COUNT).contains(&dc.cp) {
-                    if byte_pos > last_written {
-                        state.flush_nfd(&mut out);
-                        out.push_str(&input[last_written..byte_pos]);
-                    }
-                    last_written = byte_pos + width;
-                    state.flush_nfd(&mut out);
-                    // SAFETY: dc.cp is a valid Hangul syllable codepoint.
-                    let ch = unsafe { char::from_u32_unchecked(dc.cp) };
-                    let (l, v, t) = hangul::decompose_hangul(ch);
-                    out.push(l);
-                    out.push(v);
-                    if let Some(t_char) = t {
-                        out.push(t_char);
-                    }
-                    continue;
-                }
-                // Non-decomposing starter: bulk-passthrough.
-                if dc.decomp_kind == DecompKind::None && dc.ccc == 0 {
-                    continue;
-                }
-                // Needs work: copy passthrough, then process via unified pipeline.
-                if byte_pos > last_written {
-                    state.flush_nfd(&mut out);
-                    out.push_str(&input[last_written..byte_pos]);
-                }
-                last_written = byte_pos + width;
-                process_codepoint(&dc, &mut state, &mut out, form);
-                continue;
-            }
-
-            // Compose mode: copy any passthrough bytes between last_written and
-            // this position. Flush NormState first: it may hold a buffered
-            // starter that must appear *before* the passthrough run.
-            if byte_pos > last_written {
-                state.flush(&mut out, composes);
-                let pass = &input[last_written..byte_pos];
-                // Reuse the trie value already fetched by `decode_at` instead
-                // of re-running `raw_decomp_trie_value` on `dc.cp`.
-                flush_compose_passthrough(pass, dc.tv, &mut state, &mut out);
-            }
-
-            last_written = byte_pos + width;
-            process_codepoint(&dc, &mut state, &mut out, form);
-        }
+        prefetch_write_head!(out);
+        process_chunk!(chunk_start, mask);
 
         pos += 64;
     }

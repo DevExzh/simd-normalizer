@@ -350,6 +350,66 @@ pub(crate) unsafe fn scan_and_prefetch(
     }
 }
 
+/// Scan two adjacent 64-byte chunks software-pipelined, issuing one pair of
+/// prefetch hints. Returns `(mask_a, mask_b)`.
+///
+/// On NEON (aarch64) this dispatches to a custom paired implementation that
+/// issues all 8 loads / 8 compares / 8 reductions interleaved across NEON
+/// pipes, which buys ~2x throughput on dense-hit chunks.
+///
+/// On all other targets (including aarch64 SVE2, x86_64, wasm32, scalar)
+/// this falls back to two sequential `scan_and_prefetch` calls. The
+/// fallback exists only so callers don't need to special-case the
+/// architecture; it provides no microarchitectural benefit on non-NEON
+/// backends.
+///
+/// # Safety
+/// - Both chunk pointers must be valid for 64 bytes of read access.
+/// - Prefetch pointers may be out-of-bounds (non-faulting hint).
+#[allow(dead_code)]
+#[inline]
+pub(crate) unsafe fn scan_pair_and_prefetch(
+    ptr_a: *const u8,
+    ptr_b: *const u8,
+    prefetch_l1: *const u8,
+    prefetch_l2: *const u8,
+    bound: u8,
+) -> (u64, u64) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if dispatch::sve2_enabled() {
+            // SVE2: no paired specialization yet -- fall back to two scans.
+            // SAFETY: see scan_and_prefetch.
+            unsafe {
+                let a = aarch64::sve2::scan_and_prefetch(ptr_a, prefetch_l1, prefetch_l2, bound);
+                let b = aarch64::sve2::scan_chunk(ptr_b, bound);
+                (a, b)
+            }
+        } else {
+            // SAFETY: caller guarantees both chunks are valid for 64 bytes.
+            unsafe {
+                aarch64::neon::scan_chunk_pair_and_prefetch(
+                    ptr_a,
+                    ptr_b,
+                    prefetch_l1,
+                    prefetch_l2,
+                    bound,
+                )
+            }
+        }
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let vt = dispatch::get_vtable();
+        // SAFETY: see scan_and_prefetch.
+        unsafe {
+            let a = (vt.scan_and_prefetch)(ptr_a, prefetch_l1, prefetch_l2, bound);
+            let b = (vt.scan_chunk)(ptr_b, bound);
+            (a, b)
+        }
+    }
+}
+
 /// Find the byte offset of the first byte >= `bound` in `bytes`.
 ///
 /// Uses the dispatched SIMD scanner in 64-byte chunks, then scans the tail

@@ -807,12 +807,11 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                             last_written = byte_pos + width;
                             state.flush_nfd(&mut out);
                             let ch = unsafe { char::from_u32_unchecked(dc.cp) };
-                            let (l, v, t) = hangul::decompose_hangul(ch);
-                            out.push(l);
-                            out.push(v);
-                            if let Some(t_char) = t {
-                                out.push(t_char);
-                            }
+                            // Single fused UTF-8 write (6 or 9 bytes) instead
+                            // of three `String::push(char)` calls; saves the
+                            // per-push capacity check + per-char encode loop
+                            // on dense Hangul fixtures.
+                            hangul::push_decomposed_hangul(ch, &mut out);
                             continue;
                         }
                         // Non-decomposing starter: bulk-passthrough.
@@ -948,12 +947,7 @@ fn normalize_impl<'a>(input: &'a str, form: Form) -> Cow<'a, str> {
                         state.flush_nfd(&mut out);
                         // SAFETY: dc.cp is a valid Hangul syllable codepoint.
                         let ch = unsafe { char::from_u32_unchecked(dc.cp) };
-                        let (l, v, t) = hangul::decompose_hangul(ch);
-                        out.push(l);
-                        out.push(v);
-                        if let Some(t_char) = t {
-                            out.push(t_char);
-                        }
+                        hangul::push_decomposed_hangul(ch, &mut out);
                         tail_pos += width;
                         continue;
                     }

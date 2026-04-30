@@ -74,6 +74,51 @@ pub(crate) fn decompose_hangul(c: char) -> (char, char, Option<char>) {
     (l, v, t)
 }
 
+/// Decompose a Hangul Syllable directly into UTF-8 bytes appended to `out`.
+///
+/// Writes 6 bytes (LV) or 9 bytes (LVT) in a single `extend_from_slice` after
+/// one capacity-reserve, instead of calling `String::push` three times. The
+/// per-`push` capacity check + per-char UTF-8 encode dominates the syllable
+/// cost on the NFD/NFKD Hangul path; consolidating into one reserve+memcpy is
+/// a measurable win on dense Hangul (`gen_hangul`).
+///
+/// All Hangul jamos are 3-byte UTF-8 in the U+1100..U+11FF block, all
+/// starting with 0xE1. We construct the byte sequence inline from the L/V/T
+/// indices without going through `char::from_u32_unchecked` + `encode_utf8`.
+#[inline]
+pub(crate) fn push_decomposed_hangul(c: char, out: &mut alloc::string::String) {
+    debug_assert!(is_hangul_syllable(c));
+    let s_index = c as u32 - S_BASE;
+    let l_index = s_index / N_COUNT;
+    let v_index = (s_index % N_COUNT) / T_COUNT;
+    let t_index = s_index % T_COUNT;
+
+    // L: cp = 0x1100 + l_index (l_index in 0..19, all in 0x1100..0x1112).
+    //    UTF-8 = [0xE1, 0x84, 0x80 | l_index].
+    // V: cp = 0x1161 + v_index (v_index in 0..21, all in 0x1161..0x1175).
+    //    UTF-8 = [0xE1, 0x85, 0xA1 | v_index] (since cp & 0x3F = 0x21 + v_index, no overflow).
+    //    Verified: v_index <= 20, so 0xA1 + 20 = 0xB5 < 0xC0.
+    // T: cp = 0x11A7 + t_index (t_index in 1..28, all in 0x11A8..0x11C3).
+    //    For cp in 0x11A8..0x11C0: byte1=0x86, byte2 = 0x80 | (cp & 0x3F) = 0xA8..0xBF.
+    //    For cp in 0x11C0..0x11C3: byte1=0x87, byte2 = 0x80 | (cp & 0x3F) = 0x80..0x83.
+
+    let l_b2 = 0x80 | (l_index as u8);
+    let v_b2 = 0xA1 + (v_index as u8);
+
+    if t_index == 0 {
+        // 6-byte LV decomposition.
+        let bytes = [0xE1u8, 0x84, l_b2, 0xE1, 0x85, v_b2];
+        out.push_str(unsafe { core::str::from_utf8_unchecked(&bytes) });
+    } else {
+        // 9-byte LVT decomposition.
+        let t_cp = T_BASE + t_index;
+        let t_b1 = 0x80 | ((t_cp >> 6) & 0x3F) as u8; // 0x86 or 0x87
+        let t_b2 = 0x80 | (t_cp & 0x3F) as u8;
+        let bytes = [0xE1u8, 0x84, l_b2, 0xE1, 0x85, v_b2, 0xE1, t_b1, t_b2];
+        out.push_str(unsafe { core::str::from_utf8_unchecked(&bytes) });
+    }
+}
+
 /// Attempt to compose a Hangul pair.
 /// L + V -> LV Syllable, LV Syllable + T -> LVT Syllable.
 /// Returns `None` if pair does not form a Hangul composition.

@@ -229,6 +229,16 @@ pub(crate) unsafe fn scan_chunk_pair(ptr_a: *const u8, ptr_b: *const u8, bound: 
 /// and `prefetch_l2` arguments are streaming prefetches for the data ~256B
 /// and ~1024B ahead respectively.
 ///
+/// The prefetch instructions are folded **into** the SIMD pipeline rather
+/// than issued before it: `prfm pldl1strm` lands between the first two
+/// loads, and `prfm pldl2strm` lands between loads 3 and 4. On Apple
+/// Silicon the LSU has separate ports for prefetches and ldr/q, so this
+/// lets the prefetch's address-generation+TLB walk overlap the v0a/v1a
+/// load latency rather than serialising at the head of the function.
+/// Without this interleaving the codegen tends to emit both `prfm`s
+/// back-to-back at the top of the function, which idles the LSU during
+/// the subsequent `vcgeq`/`vaddv` reduce chain.
+///
 /// # Safety
 /// Same as [`scan_chunk_pair`], plus prefetch pointers must be derived from
 /// a valid allocation.
@@ -245,9 +255,93 @@ pub(crate) unsafe fn scan_chunk_pair_and_prefetch(
 ) -> (u64, u64) {
     use crate::simd::prefetch::{prefetch_l1_stream, prefetch_l2_stream};
     unsafe {
+        let bound_vec = simd_splat(bound);
+        let bit_mask = load_bit_mask();
+
+        // Issue 8 loads, with the two prefetches interleaved. The prfm
+        // instructions are non-blocking on AArch64 -- they enter the LSU
+        // queue and execute in the background, overlapping the loads
+        // that surround them. Putting them after the first load means
+        // the address generation has already started by the time the
+        // prefetch's TLB walk needs to share the LSU.
+        let v0a = simd_load(ptr_a);
         prefetch_l1_stream(prefetch_l1);
+        let v1a = simd_load(ptr_a.add(16));
+        let v2a = simd_load(ptr_a.add(32));
         prefetch_l2_stream(prefetch_l2);
-        scan_chunk_pair(ptr_a, ptr_b, bound)
+        let v3a = simd_load(ptr_a.add(48));
+        let v0b = simd_load(ptr_b);
+        let v1b = simd_load(ptr_b.add(16));
+        let v2b = simd_load(ptr_b.add(32));
+        let v3b = simd_load(ptr_b.add(48));
+
+        // 8 compares.
+        let c0a = vcgeq_u8(v0a, bound_vec);
+        let c1a = vcgeq_u8(v1a, bound_vec);
+        let c2a = vcgeq_u8(v2a, bound_vec);
+        let c3a = vcgeq_u8(v3a, bound_vec);
+        let c0b = vcgeq_u8(v0b, bound_vec);
+        let c1b = vcgeq_u8(v1b, bound_vec);
+        let c2b = vcgeq_u8(v2b, bound_vec);
+        let c3b = vcgeq_u8(v3b, bound_vec);
+
+        // Coarse any-set check per chunk.
+        let any_a = {
+            use core::arch::aarch64::vorrq_u8;
+            let or01 = vorrq_u8(c0a, c1a);
+            let or23 = vorrq_u8(c2a, c3a);
+            vmaxvq_u8(vorrq_u8(or01, or23)) != 0
+        };
+        let any_b = {
+            use core::arch::aarch64::vorrq_u8;
+            let or01 = vorrq_u8(c0b, c1b);
+            let or23 = vorrq_u8(c2b, c3b);
+            vmaxvq_u8(vorrq_u8(or01, or23)) != 0
+        };
+
+        let mask_a = if any_a {
+            let m0 = vandq_u8(c0a, bit_mask);
+            let m1 = vandq_u8(c1a, bit_mask);
+            let m2 = vandq_u8(c2a, bit_mask);
+            let m3 = vandq_u8(c3a, bit_mask);
+            let l0 = vaddv_u8(vget_low_u8(m0)) as u64;
+            let h0 = vaddv_u8(vget_high_u8(m0)) as u64;
+            let l1 = vaddv_u8(vget_low_u8(m1)) as u64;
+            let h1 = vaddv_u8(vget_high_u8(m1)) as u64;
+            let l2 = vaddv_u8(vget_low_u8(m2)) as u64;
+            let h2 = vaddv_u8(vget_high_u8(m2)) as u64;
+            let l3 = vaddv_u8(vget_low_u8(m3)) as u64;
+            let h3 = vaddv_u8(vget_high_u8(m3)) as u64;
+            (l0 | (h0 << 8))
+                | ((l1 | (h1 << 8)) << 16)
+                | ((l2 | (h2 << 8)) << 32)
+                | ((l3 | (h3 << 8)) << 48)
+        } else {
+            0
+        };
+
+        let mask_b = if any_b {
+            let m0 = vandq_u8(c0b, bit_mask);
+            let m1 = vandq_u8(c1b, bit_mask);
+            let m2 = vandq_u8(c2b, bit_mask);
+            let m3 = vandq_u8(c3b, bit_mask);
+            let l0 = vaddv_u8(vget_low_u8(m0)) as u64;
+            let h0 = vaddv_u8(vget_high_u8(m0)) as u64;
+            let l1 = vaddv_u8(vget_low_u8(m1)) as u64;
+            let h1 = vaddv_u8(vget_high_u8(m1)) as u64;
+            let l2 = vaddv_u8(vget_low_u8(m2)) as u64;
+            let h2 = vaddv_u8(vget_high_u8(m2)) as u64;
+            let l3 = vaddv_u8(vget_low_u8(m3)) as u64;
+            let h3 = vaddv_u8(vget_high_u8(m3)) as u64;
+            (l0 | (h0 << 8))
+                | ((l1 | (h1 << 8)) << 16)
+                | ((l2 | (h2 << 8)) << 32)
+                | ((l3 | (h3 << 8)) << 48)
+        } else {
+            0
+        };
+
+        (mask_a, mask_b)
     }
 }
 

@@ -39,7 +39,7 @@ internal-test-api = []
 quick_check_oracle = []
 
 [dev-dependencies]
-proptest = "1"
+proptest = "1.12"
 unicode-normalization = "0.1"
 icu_normalizer = "2.2"
 simdutf8 = "0.1"

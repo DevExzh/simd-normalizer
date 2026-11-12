@@ -8,9 +8,9 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "0.4.13"
 simd-normalizer = { path = ".." }
-unicode-normalization = "0.1"
+unicode-normalization = "0.1.26"
 
 [[bin]]
 name = "fuzz_nfc"

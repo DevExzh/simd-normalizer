@@ -310,6 +310,8 @@ fn differential_edge_cases() {
         ("ccc-reorder-1", "\u{0065}\u{0327}\u{0301}"),
         // CCC reorder: acute (ccc=230) before cedilla (ccc=202) -- should reorder
         ("ccc-reorder-2", "\u{0065}\u{0301}\u{0327}"),
+        // Unicode 18 Hebrew points must participate in CCC reordering.
+        ("unicode-18-hebrew-points", "\u{0591}\u{05C8}\u{05C9}"),
         // Long combining sequence
         (
             "long-combining",

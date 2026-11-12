@@ -50,9 +50,8 @@ fn combining_heavy_strategy() -> impl Strategy<Value = String> {
         '\u{0061}'..='\u{007A}', // a-z
         '\u{00C0}'..='\u{00FF}', // Latin-1 Supplement
     ]));
-    let combining = prop::char::ranges(std::borrow::Cow::Borrowed(&[
-        '\u{0300}'..='\u{036F}', // Combining Diacritical Marks
-    ]));
+    // Combining Diacritical Marks
+    let combining = prop::char::range('\u{0300}', '\u{036F}');
 
     prop::collection::vec((base_chars, prop::collection::vec(combining, 1..=8)), 1..=8).prop_map(
         |segments| {
@@ -70,18 +69,10 @@ fn combining_heavy_strategy() -> impl Strategy<Value = String> {
 
 /// Hangul syllables and L+V / L+V+T jamo sequences.
 fn hangul_strategy() -> impl Strategy<Value = String> {
-    let syllables = prop::char::ranges(std::borrow::Cow::Borrowed(&[
-        '\u{AC00}'..='\u{D7A3}', // Precomposed Hangul syllables
-    ]));
-    let leading = prop::char::ranges(std::borrow::Cow::Borrowed(&[
-        '\u{1100}'..='\u{1112}', // Hangul Jamo Leading consonants (L)
-    ]));
-    let vowel = prop::char::ranges(std::borrow::Cow::Borrowed(&[
-        '\u{1161}'..='\u{1175}', // Hangul Jamo Vowels (V)
-    ]));
-    let trailing = prop::char::ranges(std::borrow::Cow::Borrowed(&[
-        '\u{11A8}'..='\u{11C2}', // Hangul Jamo Trailing consonants (T)
-    ]));
+    let syllables = prop::char::range('\u{AC00}', '\u{D7A3}'); // Precomposed Hangul syllables
+    let leading = prop::char::range('\u{1100}', '\u{1112}'); // Hangul Jamo Leading consonants (L)
+    let vowel = prop::char::range('\u{1161}', '\u{1175}'); // Hangul Jamo Vowels (V)
+    let trailing = prop::char::range('\u{11A8}', '\u{11C2}'); // Hangul Jamo Trailing consonants (T)
 
     // Mix of: precomposed syllables, L+V pairs, L+V+T triples
     prop::collection::vec(

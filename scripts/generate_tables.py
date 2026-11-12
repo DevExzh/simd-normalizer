@@ -5,7 +5,7 @@ Generate Rust source files for simd-normalizer from the Unicode Character Databa
 Usage:
     python3 scripts/generate_tables.py
 
-Downloads UCD files for Unicode 17.0 and generates:
+Downloads UCD files for Unicode 18.0 and generates:
     src/tables/decomposition.rs
     src/tables/composition.rs
     src/tables/ccc.rs
@@ -19,7 +19,7 @@ import hashlib
 from pathlib import Path
 from collections import defaultdict
 
-UNICODE_VERSION = "17.0.0"
+UNICODE_VERSION = "18.0.0"
 UCD_BASE_URL = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
 
 UCD_FILES = {
@@ -30,13 +30,13 @@ UCD_FILES = {
     "CaseFolding.txt": f"{UCD_BASE_URL}/CaseFolding.txt",
 }
 
-SECURITY_BASE_URL = "https://www.unicode.org/Public/security/latest"
+SECURITY_BASE_URL = f"https://www.unicode.org/Public/{UNICODE_VERSION}/security"
 SECURITY_FILES = {
     "confusables.txt": f"{SECURITY_BASE_URL}/confusables.txt",
 }
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CACHE_DIR = SCRIPT_DIR / "ucd_cache"
+CACHE_DIR = SCRIPT_DIR / "ucd_cache" / UNICODE_VERSION
 PROJECT_ROOT = SCRIPT_DIR.parent
 OUTPUT_DIR = PROJECT_ROOT / "src" / "tables"
 TEST_DATA_DIR = PROJECT_ROOT / "tests" / "data"
@@ -901,6 +901,7 @@ def write_normalization_tests_rs(tests):
         f.write(f"// Test cases: {len(tests)}\n\n")
         f.write("#![cfg_attr(rustfmt, rustfmt::skip)]\n\n")
         f.write("#[derive(Debug)]\n")
+        f.write("#[allow(dead_code)]\n")
         f.write("pub struct NormalizationTest {\n")
         f.write("    pub source: &'static str,\n")
         f.write("    pub nfc: &'static str,\n")
@@ -915,7 +916,13 @@ def write_normalization_tests_rs(tests):
             nfd_lit = codepoints_to_rust_str(nfd)
             nfkc_lit = codepoints_to_rust_str(nfkc)
             nfkd_lit = codepoints_to_rust_str(nfkd)
-            f.write(f"    NormalizationTest {{ source: {src_lit}, nfc: {nfc_lit}, nfd: {nfd_lit}, nfkc: {nfkc_lit}, nfkd: {nfkd_lit} }},\n")
+            f.write("    NormalizationTest {\n")
+            f.write(f"        source: {src_lit},\n")
+            f.write(f"        nfc: {nfc_lit},\n")
+            f.write(f"        nfd: {nfd_lit},\n")
+            f.write(f"        nfkc: {nfkc_lit},\n")
+            f.write(f"        nfkd: {nfkd_lit},\n")
+            f.write("    },\n")
         f.write("];\n")
     print(f"  Wrote {path} ({path.stat().st_size} bytes, {len(tests)} test cases)")
 

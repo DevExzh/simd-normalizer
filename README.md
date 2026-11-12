@@ -6,7 +6,7 @@ Provides NFC, NFD, NFKC, and NFKD normalization with a single-pass,
 SIMD-guided architecture that scans 64-byte chunks to skip ASCII and
 passthrough regions in bulk. Non-passthrough bytes are handled with scalar
 decode, decompose, CCC sort, and optional recomposition. Tables are generated
-from Unicode 17.0 data.
+from Unicode 18.0 data.
 
 ## Features
 
